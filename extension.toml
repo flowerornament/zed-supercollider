@@ -1,8 +1,8 @@
-name = "supercollider"
-display_name = "SuperCollider"
+id = "supercollider"
+name = "SuperCollider"
 version = "0.1.0"
 schema_version = 1
-authors = ["Zed SuperCollider Team"]
+authors = ["Zed SuperCollider Team <devnull@example.com>"]
 description = "SuperCollider language support: grammar, queries, LSP bootstrap, evaluation, and snippets."
 repository = "https://github.com/your-org/zed-supercollider"
 

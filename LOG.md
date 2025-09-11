@@ -52,3 +52,6 @@ Planned next steps (pending):
 - 2025-09-11 — Pinned grammar and added settings/docs
   - Pinned `tree-sitter-supercollider` commit in `extension.toml`.
   - Added `docs/SETTINGS.md`, `docs/MIGRATION.md`, `docs/TROUBLESHOOTING.md`, `docs/TASKS_SNIPPET.md`.
+
+- 2025-09-11 — Fixed manifest for Zed install
+  - Updated `extension.toml` to use `id` and `name` fields (removed `display_name`), and normalized authors format.
