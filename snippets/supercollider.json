@@ -1,0 +1,25 @@
+{
+  "SynthDef skeleton": {
+    "prefix": "synthdef",
+    "body": [
+      "SynthDef(\\${1:name}, { |${2:arg1}=0|",
+      "  var ${3:sig};",
+      "  ${3:sig} = SinOsc.ar(${4:freq}, 0, ${5:0.1});",
+      "  Out.ar(${6:0}, ${3:sig});",
+      "}).add;"
+    ],
+    "description": "Basic SynthDef template"
+  },
+  "Pattern Pbind": {
+    "prefix": "pbind",
+    "body": [
+      "Pbind(",
+      "  \\instrument, \\${1:synth},",
+      "  \\dur, Pseq([${2:0.25}, ${3:0.5}], inf),",
+      "  \\degree, Pseq([${4:0}, ${5:2}, ${6:4}, ${7:7}], inf)",
+      ")"
+    ],
+    "description": "Pattern-based sequencing"
+  }
+}
+
