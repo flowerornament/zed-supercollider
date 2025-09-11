@@ -42,3 +42,9 @@ Planned next steps (pending):
 - 2025-09-11 — Read Zed extension docs; aligned plan
   - Confirmed Rust cdylib + `register_extension!` pattern and using latest `zed_extension_api` compatible with target Zed versions.
   - Adjusted fallback post window approach: provide user Task snippet in docs instead of bundling a `.ztask.json` file; consider an extension command to spawn `sclang` if API allows.
+
+- 2025-09-11 — Initialized git repository and committed scaffold
+  - Added `.gitignore` and removed cached artifacts; first commit with scaffold and docs.
+
+- 2025-09-11 — M2 kick-off: LSP launcher stub
+  - Added `server/launcher` Rust bin crate. Currently probes `sclang -v`; to be extended with Quark install and stdio bridge.

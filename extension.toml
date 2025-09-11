@@ -9,5 +9,4 @@ repository = "https://github.com/your-org/zed-supercollider"
 # Pin the Tree-sitter grammar used by this language.
 [grammars.supercollider]
 repository = "https://github.com/madskjeldgaard/tree-sitter-supercollider"
-rev = "d7f0f3b3a9a3f9e0f1b2c6d1a3b4c5d6e7f8a9b0" # TODO: replace with a verified pinned commit
-
+rev = "613bac2ddc30bff4f0a1d88b1aa7e5ec8ca37028"

@@ -46,10 +46,11 @@ fn main() -> Result<()> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-
-    eprintln!("sclang detected: {}", sclang);
-    eprintln!("TODO: launch LanguageServer.quark and bridge stdio");
-    // Placeholder: exit successfully so the client can detect readiness wiring later.
+    // Emit a simple JSON probe result to stdout to support a "Check setup" command.
+    let json = format!(
+        "{{\"ok\":true,\"sclang\":{{\"path\":\"{}\"}},\"note\":\"probe-only; LSP bootstrap TBD\"}}",
+        sclang.replace('"', "\\\"")
+    );
+    println!("{}", json);
     Ok(())
 }
-
