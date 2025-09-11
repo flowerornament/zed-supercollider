@@ -48,3 +48,7 @@ Planned next steps (pending):
 
 - 2025-09-11 — M2 kick-off: LSP launcher stub
   - Added `server/launcher` Rust bin crate. Currently probes `sclang -v`; to be extended with Quark install and stdio bridge.
+
+- 2025-09-11 — Pinned grammar and added settings/docs
+  - Pinned `tree-sitter-supercollider` commit in `extension.toml`.
+  - Added `docs/SETTINGS.md`, `docs/MIGRATION.md`, `docs/TROUBLESHOOTING.md`, `docs/TASKS_SNIPPET.md`.

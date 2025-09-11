@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-This repository contains a Zed extension for SuperCollider, migrating scnvim features to Zed. Follow these concise rules to keep changes consistent and reviewable. See `docs/MIGRATION_PLAN.md` for the full step‑by‑step plan (Navigator role).
+This repository contains a Zed extension for SuperCollider, migrating scnvim features to Zed. Follow these concise rules to keep changes consistent and reviewable. See `docs/MIGRATION_PLAN.md` (source plan) and `PLAN.md` (implementation plan) for details.
 
 ## Project Structure & Module Organization
 - `extension.toml` — extension metadata, commands, settings, LSP mapping.
@@ -10,7 +10,7 @@ This repository contains a Zed extension for SuperCollider, migrating scnvim fea
 - `server/launcher/` — helper to start `sclang` + LanguageServer.quark (LSP bridge).
 - `server/quark/` — optional vendored LanguageServer.quark (submodule or downloader).
 - `tasks/` — optional dev helpers; fallback post window is provided via user Tasks snippets documented under `docs/`.
-- `docs/` — `MIGRATION.md`, `MIGRATION_PLAN.md`, `TROUBLESHOOTING.md`, user guides.
+- `docs/` — `MIGRATION.md`, `MIGRATION_PLAN.md`, `SETTINGS.md`, `TROUBLESHOOTING.md`, user guides.
 - `tests/` — unit/E2E tests; fixtures under `tests/fixtures/`.
 
 ## Build, Test, and Development Commands
@@ -18,6 +18,8 @@ This repository contains a Zed extension for SuperCollider, migrating scnvim fea
 - Format/Lint: `cargo fmt --all` ; `cargo clippy --all-targets --all-features -- -D warnings`
 - Unit tests: `cargo test`
 - Smoke test: open a `.scd` → run “Eval Selection” → confirm output in the post/log panel (or use the user Task snippet from docs to run a persistent `sclang` terminal).
+- Build launcher only: `cargo build -p sc_launcher`
+- Run setup probe: `cargo run -p sc_launcher -- --sclang-path $(which sclang)`
 
 ## Coding Style & Naming Conventions
 - Rust 2021; 4‑space indentation; target line length ≈ 100.

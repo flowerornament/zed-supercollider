@@ -36,6 +36,7 @@ Tasks
 - Scaffold `server/launcher` (Rust): detect `sclang`, ensure LanguageServer.quark installed, start LSP, bridge transport to stdio.
 - Wire LSP in `src/lib.rs` with `zed_extension_api::lsp` for “SuperCollider”.
 - Settings: `supercollider.sclangPath`, `supercollider.confYamlPath?`, health check command.
+ - Workspace: add Cargo workspace including `server/launcher` for unified builds.
 Files
 - `server/launcher/{Cargo.toml,src/main.rs}`
 - `src/lib.rs` (LSP registration), `extension.toml` (settings schema)
