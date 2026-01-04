@@ -1,0 +1,4 @@
+[submodule "server/quark/LanguageServer.quark"]
+	path = server/quark/LanguageServer.quark
+	url = https://github.com/flowerornament/LanguageServer.quark
+	branch = develop

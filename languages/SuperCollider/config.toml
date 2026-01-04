@@ -1,0 +1,8 @@
+name = "SuperCollider"
+grammar = "supercollider"
+path_suffixes = ["sc", "scd"]
+line_comments = ["// "]
+tab_size = 4
+hard_tabs = false
+opt_into_language_servers = ["supercollider"]
+scope_opt_in_language_servers = ["supercollider"]

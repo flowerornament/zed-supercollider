@@ -1,26 +1,90 @@
 # Troubleshooting
 
-Common issues and resolutions when setting up SuperCollider with Zed.
+Common issues and resolutions when using SuperCollider with Zed.
 
-- sclang not found
-  - Set `supercollider.sclangPath` to the absolute path. On Windows, point to `sclang.exe`.
-- LanguageServer.quark missing
-  - Install via the SuperCollider IDE (`Quarks.install("LanguageServer")`) and ensure the quark (plus `Log`, `UnitTest2`, `Deferred`) resides under `~/Library/Application Support/SuperCollider/{downloaded-quarks,Extensions}`.
-  - Restart Zed after installing so the launcher picks up the quark.
-- Play buttons missing
-  - Ensure the document is saved with `.sc`/`.scd` and the cursor is inside a runnable block (`(...)` or `{...}`).
-  - Confirm your tasks include `"tags": ["sc-eval"]` and use `$ZED_CUSTOM_code`.
-- Eval task fails / connection refused
-  - Make sure the launcher is running with the HTTP server enabled and the port matches your task (default `57130`).
-  - Verify `curl` is available or use a launcher CLI fallback if configured.
-- Server fails to boot / no sound
-  - Check audio device configuration in your SuperCollider setup. Try `s.boot` manually, then `s.quit`.
-- CmdPeriod doesn’t stop sound
-  - Ensure the `/stop` task is hitting the launcher; check the terminal panel for errors.
-- Conflicts with SCIDE
-  - Avoid running SCIDE and Zed against the same `sclang_conf.yaml` simultaneously; use a dedicated config if needed.
-- Help rendering blank
-  - Set `supercollider.help.converter` (e.g., `pandoc`) or rely on LSP hover/docs.
-- Ports in use
-  - Check for existing `scsynth` instances; change ports in your SC config if needed.
-  - The launcher uses two localhost UDP ports for LSP and an HTTP port (default `57130`) for evaluation.
+## Setup Issues
+
+### sclang not found
+Set the sclang path in your Zed settings. On macOS:
+```
+/Applications/SuperCollider.app/Contents/MacOS/sclang
+```
+
+### LanguageServer.quark missing
+Install via SuperCollider:
+```supercollider
+Quarks.install("LanguageServer");
+```
+Restart Zed after installing.
+
+### Language server not loading
+1. Run `cmd-shift-p` → "zed: restart language servers"
+2. Or close and reopen the `.scd` file
+3. Or run "Kill All" and reopen
+
+## Evaluation Issues
+
+### Play buttons missing
+- Ensure the file is saved with `.sc` or `.scd` extension
+- Cursor must be inside a runnable block `(...)` or `{...}`
+- Check that tasks include `"tags": ["sc-eval"]`
+
+### Eval task fails / connection refused
+- Verify the launcher is running (check LSP logs)
+- Confirm HTTP port matches (default `57130`)
+- Test with: `curl -X POST -d "1+1" http://127.0.0.1:57130/eval`
+
+### No sound / server fails to boot
+- Check audio device configuration in SuperCollider
+- Try booting manually: evaluate `s.boot` in SuperCollider IDE first
+- Check Post Window for error messages
+
+### CmdPeriod doesn't stop sound
+- Ensure `/stop` endpoint is accessible
+- Check for orphaned scsynth processes (see below)
+
+## Process Issues
+
+### Orphaned scsynth processes
+If sclang crashes, scsynth may keep running with no way to control it.
+
+**Solution:** Use "SuperCollider: Kill All" (`cmd-alt-k`) to kill all SC processes.
+
+### Multiple SuperCollider instances
+The launcher kills existing sclang processes on startup. If you see duplicates:
+1. Run "Kill All" task
+2. Wait a moment
+3. Reopen your `.scd` file
+
+## Known Limitations
+
+### Terminal flash when evaluating
+When the terminal panel is open, evaluating code causes a brief flash as Zed creates/destroys terminals.
+
+**Workaround:** Keep the terminal panel closed during normal coding. The Post Window can remain open.
+
+**Status:** Zed limitation - tasks always create terminals, even with `"reveal": "never"`.
+
+### Multiple Post Windows
+Pressing `ctrl-shift-p` multiple times opens duplicate Post Window terminals.
+
+**Workaround:** Only open the Post Window once per session.
+
+**Status:** Zed tasks don't support singleton/toggle behavior.
+
+### Post Window shows old content
+The log file (`/tmp/sclang_post.log`) accumulates across sessions.
+
+**Workaround:** Run "Kill All" to clear the log, or manually delete the file.
+
+## Port Conflicts
+
+The extension uses these ports:
+- HTTP eval server: `57130` (configurable via `--http-port`)
+- LSP UDP: dynamic localhost ports
+
+If ports conflict, check for existing `scsynth` or `sclang` instances.
+
+## Conflicts with SC IDE
+
+Avoid running SC IDE and Zed simultaneously - they may conflict over `sclang_conf.yaml`.

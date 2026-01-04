@@ -1,9 +1,0 @@
-This directory vendors selected documentation from the scnvim project for reference.
-
-Attribution
-- Project: scnvim
-- Source: https://github.com/davidgranstrom/scnvim
-- Commit: 8148e9b5700956b14b0202ee4b08d6856510d3fd
-- License: GPL-3.0
-
-These materials are provided unmodified and used solely to inform development of feature parity and acceptance tests for this repository. End‑user documentation for this project is maintained separately.
