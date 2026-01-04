@@ -15,8 +15,8 @@ This plan ports core scnvim workflows to a first‑class Zed extension with clea
 1) Language intelligence via LSP, not custom pipes. Reuse LanguageServer.quark with a small launcher/bridge for stdio LSP.
 2) Syntax & structure via Tree‑sitter. Package `tree-sitter-supercollider` and provide Zed queries.
 3) Evaluation & post window
-   - Primary: LSP custom commands streaming output via `window/logMessage`.
-   - Fallback: Zed Tasks + Integrated Terminal running persistent `sclang`.
+   - Primary: Zed runnables + Tasks → HTTP → launcher → sclang.
+   - Post output surfaces in the terminal panel; optional persistent `sclang` task as fallback.
 4) Zed extension in Rust→Wasm using `zed_extension_api` (process, lsp, settings).
 
 ## 1) Repository Layout
@@ -40,13 +40,14 @@ zed-supercollider/
       Cargo.toml
       src/main.rs
     quark/                  # optional submodule/downloader
-  tasks/
-    sc-post.ztask.json
   docs/
-    README.md
     MIGRATION.md
-    TROUBLESHOOTING.md
     MIGRATION_PLAN.md
+    SETTINGS.md
+    TASKS_SNIPPET.md
+    TROUBLESHOOTING.md
+    USAGE.md
+    KEYBINDINGS.md
   tests/
     fixtures/
 ```
@@ -78,17 +79,17 @@ hard_tabs = false
   - Start `sclang` loading the LSP server.
   - Bridge stdio JSON‑RPC to whatever transport the Quark expects.
 - In `src/lib.rs`, register the LSP for SuperCollider using `zed_extension_api::lsp` and expose settings.
-- Custom LSP commands:
-  - `supercollider.evalBlock|evalLine|evalSelection|hardStop|recompile|bootServer|quitServer`.
-  - Semantics: `hardStop` → `CmdPeriod.run`; `recompile` → `thisProcess.recompile`; `bootServer` → `s.boot`; `quitServer` → `s.quit`.
+- Custom LSP commands (server-side):
+  - `supercollider.eval` accepts raw source (used by the launcher's HTTP `/eval` endpoint).
+  - Server control endpoints map to `CmdPeriod.run`, `thisProcess.recompile`, `s.boot`, `s.quit`.
 
 ## 4) Post Window Strategy
-- Primary: stream via `window/logMessage` into Zed’s output panel.
-- Fallback: document a user Task snippet to run a persistent `sclang` terminal in Zed’s Tasks panel; optionally provide an extension command to spawn `sclang` in a terminal if supported by the API.
+- Primary: task/launcher output in the terminal panel (runnables → tasks → HTTP eval).
+- Fallback: document a user Task snippet to run a persistent `sclang` terminal in Zed’s Tasks panel.
 
 ## 5) User Commands & Keymaps
-- Map Zed actions to scnvim semantics: eval selection/line/block; boot/hard‑stop; recompile; open help.
-- Default keybindings in `extension.toml`; document overrides in `README.md`.
+- Map tasks to scnvim semantics: eval block (runnables), boot/hard-stop, recompile, open help.
+- Document keybindings in `README.md` (tasks are bound via user `keymap.json`).
 
 ## 6) Documentation & Help
 - Preferred: ask LanguageServer.quark for docs (hover/requests returning Markdown) and open in a new buffer.
@@ -98,12 +99,13 @@ hard_tabs = false
 - `snippets/supercollider.json` with SynthDef/UGen/Pattern templates (prefixes mirroring scnvim where sensible).
 
 ## 8) Settings & Environment
-- Settings: `supercollider.sclangPath`, `supercollider.confYamlPath?`, `supercollider.postMode`, `supercollider.autoBootServer`, `supercollider.help.converter`.
-- “Check setup” command probes: `sclang -h`, simple eval `1 + 1`, optional boot/quit.
+- Configure `sclang` path and logging via launcher arguments; LSP settings live under `lsp.supercollider.settings.supercollider`.
+- Evaluation HTTP port is configurable in the launcher (default `57130`).
 
-## 9) Fallback Tasks
-- `SC: Start sclang (post)` → integrated terminal `sclang`.
-- Optional: action to send selection to terminal when LSP unavailable.
+## 9) Tasks
+- Eval tasks: runnables tagged `sc-eval` POST `$ZED_CUSTOM_code` to the launcher's `/eval`.
+- Server control tasks: `/boot`, `/stop`, `/recompile`, `/quit`.
+- Optional fallback: `SC: Start sclang (post)` in an integrated terminal.
 
 ## 10) Milestones (LLM‑Executable)
 - M1 Language skeleton
@@ -115,12 +117,12 @@ hard_tabs = false
   4. Create `server/launcher` to start Quark LSP and bridge stdio.
   5. Register LSP in `src/lib.rs`.
   6. Implement settings + health check.
+  7. Add HTTP eval server endpoints (`/eval`, `/stop`, `/boot`, `/quit`, `/recompile`).
   - Acceptance: hover, completion, go‑to‑definition, diagnostics.
 - M3 Evaluate + Post
-  7. Client eval commands compute regions via Tree‑sitter and `executeCommand`.
-  8. Server evaluates and forwards output as `logMessage`.
-  9. Fallback Task for terminal post window.
-  - Acceptance: key evals work; output visible; hard stop works.
+  8. Runnables tag eval blocks; tasks POST `$ZED_CUSTOM_code` to `/eval`.
+  9. Document terminal panel workflow and fallback post task.
+  - Acceptance: play button/task evals work; output visible; hard stop works.
 - M4 Help & Docs
   10. `open help` via LSP; render Markdown buffer.
   11. Optional converter path for `.schelp`.
@@ -131,27 +133,27 @@ hard_tabs = false
   14. Draft `MIGRATION.md` and `TROUBLESHOOTING.md`.
 
 ## 11) Feature Parity Mapping
-- send_line/block/selection → LSP `executeCommand` + Tree‑sitter regions
-- start/stop/eval/recompile/hard_stop → LSP custom commands (+ terminal fallback)
-- post window → LSP `logMessage`; fallback integrated terminal
+- send_block → runnables + tasks + HTTP (line/selection optional if available)
+- start/stop/eval/recompile/hard_stop → tasks to launcher HTTP endpoints
+- post window → terminal panel output from launcher/tasks; fallback integrated terminal
 - help → LSP hover/requests; optional converter
 - snippets → static JSON
 - syntax/indents/outline → Tree‑sitter + queries
 
 ## 12) Risks & Mitigations
 - Transport mismatch (UDP vs stdio): launcher normalizes; long‑term Quark PR.
-- Streaming output: prefer LSP messages; keep terminal fallback.
+- Output visibility: terminal panel is primary; keep persistent `sclang` fallback.
 - Conflicts with SCIDE Document: document in troubleshooting; allow dedicated `sclang_conf.yaml`.
 
 ## 13) Concrete Prompts (per Milestone)
 - M1: scaffold extension and grammar pin.
 - M2: implement launcher and register LSP.
-- M3: add eval commands and terminal task.
+- M3: add runnables + tasks eval and terminal fallback.
 - M4: implement help request and optional converter.
 - M5: snippets + docs drafts.
 
 ## 14) Acceptance Test Script (Manual)
-1) Open an example project; evaluate selection with SinOsc; hear audio and see post output.
+1) Open an example project; evaluate a block with SinOsc (play button/task); hear audio and see post output.
 2) Hover SinOsc; see signature/doc excerpt.
 3) Trigger hard stop; audio stops; post logs.
 4) Recompile class library; completions resume.
