@@ -442,6 +442,22 @@ fn pump_stdin_to_udp(
     while !shutdown.load(Ordering::SeqCst) {
         match read_lsp_message(&mut reader) {
             Ok(Some(message)) => {
+                // Log incoming LSP method for debugging
+                if let Ok(body_str) = std::str::from_utf8(&message) {
+                    if let Some(body_start) = body_str.find("\r\n\r\n") {
+                        let body = &body_str[body_start + 4..];
+                        if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
+                            if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
+                                eprintln!(
+                                    "[sc_launcher] << LSP request: {} (id={:?})",
+                                    method,
+                                    json.get("id")
+                                );
+                            }
+                        }
+                    }
+                }
+
                 if let Err(err) = send_with_retry(&socket, &message) {
                     eprintln!(
                         "[sc_launcher] failed to send UDP message to sclang after retries: {err}"

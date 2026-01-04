@@ -56,6 +56,35 @@ The launcher kills existing sclang processes on startup. If you see duplicates:
 2. Wait a moment
 3. Reopen your `.scd` file
 
+## LSP Issues
+
+### Go to Definition not working
+1. Ensure the word under cursor is a valid SuperCollider class or method name
+2. Try `cmd-click` or `F12` on a class name like `SinOsc`
+3. Check that LanguageServer.quark is installed and working
+4. Look in Post Window for errors
+
+### No hover documentation
+**Status:** Not implemented. LanguageServer.quark does not provide `textDocument/hover`.
+
+Hover documentation shows Zed's built-in word info, not SuperCollider docs.
+
+### Completions not appearing
+- Completions trigger on `.`, `(`, or `~`
+- Type `SinOsc.` to see method completions
+- Type `~` for environment variable completions
+- Plain word completions (without trigger) are Zed's built-in feature, not LSP
+
+### LSP not starting
+Check the Zed logs for errors:
+1. Open Command Palette → "zed: open log"
+2. Search for "supercollider" or "sc_launcher"
+3. Look for connection refused or path errors
+
+To restart the LSP:
+1. Command Palette → "zed: restart language servers"
+2. Or close and reopen the `.scd` file
+
 ## Known Limitations
 
 ### Terminal flash when evaluating

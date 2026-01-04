@@ -63,6 +63,27 @@ Add these to your Zed keymap (`~/.config/zed/keymap.json`):
 | `cmd-alt-q` | Quit Server | Stop the audio server |
 | `cmd-alt-k` | Kill All | Emergency cleanup - kills all SC processes |
 
+## LSP Features
+
+The extension provides language server features through LanguageServer.quark:
+
+**Working:**
+- **Go to Definition** (`cmd-click` or `F12`) - Jump to class/method definitions
+- **Go to Declaration** - Navigate to declarations
+- **Go to Implementation** - Find implementations
+- **Find References** - Find all references to a symbol
+- **Completions** - Class names, methods, environment variables (triggered by `.`, `(`, `~`)
+- **Signature Help** - Function parameter hints
+- **Document Symbols** - Outline view of code blocks
+- **Code Lens** - Inline play buttons for code blocks
+- **Workspace Symbols** - Search for classes and methods across the project
+
+**Not Yet Available:**
+- Hover documentation (not implemented in LanguageServer.quark)
+- Inline diagnostics/errors
+
+> **Note**: The file-based completions you see (words from your current file) are Zed's built-in word completion, not the LSP. LSP completions appear when you type `.` after a class name or `~` for environment variables.
+
 ## Tips
 
 - **Post Window shows everything**: Server messages, eval results, errors, `.postln` output
