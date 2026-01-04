@@ -8,9 +8,9 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-zed_extension_api = "0.6.0"
+zed_extension_api = "0.7.0"
 
-[workspace]
-members = [
-  "server/launcher",
-]
+## Note: Do not declare a Cargo workspace in the extension root.
+## Zed builds the root crate to Wasm; a workspace may cause native bins
+## (like the launcher) to be built for Wasm and hang/fail. Build the
+## launcher separately with `cargo build -p sc_launcher`.
