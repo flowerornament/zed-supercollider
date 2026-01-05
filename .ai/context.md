@@ -10,6 +10,11 @@ Ship a stable Zed extension for SuperCollider: navigation, hover/completion, and
 - Task docs now use YAML front matter for status tracking (see `.ai/tasks/README.md`). Update `status`/`updated` and append to the `## Status Log` when making progress.
 - README is user-facing; contributor docs live here in `.ai/` (this file is the entry point; see `.ai/README.md` for the map).
 
+## Task Workflow (daily use)
+- Pick from highest-priority `status: active` in `.ai/tasks/` (P0→P3) and keep scope tight.
+- Record progress in the task file (`updated` + `## Status Log` entry) and adjust `status` when moving to done/blocked/active.
+- Keep worktree clean between steps; summarize changes/tests/next steps when you pause or hand off.
+
 ## Architecture (mental model)
 - **Zed Extension (WASM)**: `src/lib.rs` selects launcher command, merges settings, and passes LSP traffic through stdio.
 - **Launcher (Rust)**: `server/launcher/src/main.rs` translates stdio↔UDP for LSP, buffers until `***LSP READY***`, hosts HTTP server (`/eval`, `/stop`, `/boot`, `/recompile`, `/quit`), and spawns/manages `sclang --daemon`.
