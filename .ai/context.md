@@ -1,28 +1,30 @@
 # SuperCollider Zed Extension
 
-## What This Is
-Zed extension for SuperCollider with LSP support and HTTP-based code evaluation.
+## Purpose
+Ship a stable Zed extension for SuperCollider: navigation, hover/completion, and play-button evaluation via a dual-channel bridge (Zed WASM → Rust launcher → sclang over UDP/HTTP). HTTP is used for eval because Zed extensions cannot invoke `workspace/executeCommand` (see .ai/decisions/001-http-not-lsp.md).
 
-**Architecture:** 3-layer bridge (Zed WASM → Rust Launcher → sclang UDP)
-**Unique design:** Dual-channel (LSP for intelligence, HTTP for evaluation)
-**Why HTTP:** Zed extension API cannot invoke workspace/executeCommand (see .ai/decisions/001-http-not-lsp.md)
+## Quick Start for Agents
+- Read `.ai/tasks/2026-01-05-execution-plan.md` (single source of truth for priorities).
+- Honor anti-patterns below (config.toml minimal; no `^` returns in SC dicts; do not overwrite user-installed quark).
+- Use vendored quark for changes; never revert user modifications.
+
+## Architecture (mental model)
+- **Zed Extension (WASM)**: `src/lib.rs` selects launcher command, merges settings, and passes LSP traffic through stdio.
+- **Launcher (Rust)**: `server/launcher/src/main.rs` translates stdio↔UDP for LSP, buffers until `***LSP READY***`, hosts HTTP server (`/eval`, `/stop`, `/boot`, `/recompile`, `/quit`), and spawns/manages `sclang --daemon`.
+- **LanguageServer.quark (SuperCollider)**: Providers for definition/references/hover/completion/executeCommand, plus LSPDatabase indexing. Communicates over UDP.
+- **Dual channels**: LSP over stdio↔UDP for intelligence; HTTP → UDP for evaluation/control (play buttons and tasks).
 
 ## Current State
 
-**Status (2026-01-07, latest):** Hover works with class doc block. Find References fallback fixed for symbols like `SinOscFB`; built-ins like `MouseX`/`.postln` still behave oddly and need follow-up. Outline still empty (Zed never sends `textDocument/documentSymbol`). Completion/eval/server-control OK. Reference path is running the vendored quark; “Non Boolean in test” still shows in logs and needs a provider hardening pass.
+**Status (2026-01-05):** Hover works with class doc block. References work for `SinOscFB`; built-ins (`MouseX`, `.postln`) still odd. Outline empty (Zed never sends `textDocument/documentSymbol`). Completion/eval/server-control OK. Vendored quark in use; “Non Boolean in test” still appears (references provider needs hardening).
 
 **Working:** go-to-definition, hover, completion, eval, server control.
-**Partial:** references (ok for SinOscFB; built-ins need doc/fallback tuning).
-**Missing:** outline (no `textDocument/documentSymbol` from Zed); signature help unverified.
-**See:** `.ai/improvements.md` for prioritized enhancement backlog.
 
-## Plan (from original PLAN.md) – quick status
+**Partial:** references (built-ins need fallback tuning).
 
-- **M1 Language Skeleton:** Done. Grammar + queries + basic editor integration; outline query exists but client doesn’t send `documentSymbol`.
-- **M2 LSP Bootstrap:** Mostly done. Launcher + LSP wiring + definition/hover/completion working; references mostly OK but built-ins need cleanup; ensure vendored quark is loaded.
-- **M3 Eval & Post:** Eval and server-control commands work over LSP/HTTP; post via logMessage.
-- **M4 Help & Docs:** Hover shows short doc; full “open help” buffer not implemented.
-- **M5 Snippets/Polish:** Some snippets/keymaps/docs exist; migration/troubleshooting polish outstanding.
+**Missing:** outline (no `textDocument/documentSymbol` requests); signature help unverified.
+
+**Priorities:** Follow P0 items in `.ai/tasks/2026-01-05-execution-plan.md` (remove serverStatus, safe dev launcher detection, safe shutdown, capability hygiene, probe JSON fix, tasks/config/logging/error-message hardening, quark safety, docs tokenization).
 
 ## Quick File Map
 
@@ -34,45 +36,15 @@ Zed extension for SuperCollider with LSP support and HTTP-based code evaluation.
 | `languages/SuperCollider/runnables.scm` | Play button detection |
 | `languages/SuperCollider/config.toml` | **KEEP MINIMAL** (see anti-patterns) |
 | `.zed/tasks.json` | Evaluation and control tasks |
-| `.ai/improvements.md` | Prioritized enhancement backlog |
-| `.ai/tasks/2026-01-07-lsp.md` | Latest LSP debugging notes and next steps |
+| `.ai/tasks/2026-01-05-execution-plan.md` | Consolidated backlog/plan (P0–P3) |
+| `.ai/tasks/2026-01-05-lsp.md` | Latest LSP debugging notes and next steps |
 | `.ai/research/2026-01-05-navigation.md` | Go-to-definition investigation and follow-ups |
 
-## Build & Test
-
-**Build extension:** In Zed: Extensions → Rebuild (or cmd-shift-p → "reload extensions")
-
-**Build launcher:**
-```bash
-cd server/launcher && cargo build --release
-```
-
-**Verify LSP requests:**
-```bash
-grep -i "definition\|references" /tmp/sc_launcher_stdin.log
-```
-
-**Verify evaluation endpoint:**
-```bash
-curl -X POST -d "1 + 1" http://127.0.0.1:57130/eval
-```
-
-**Check for errors:**
-```bash
-grep -i "error\|exception\|dnu" /tmp/sclang_post.log
-```
-
-**Clean restart:**
-```bash
-pkill -9 sc_launcher; pkill -9 sclang
-rm /tmp/sc_launcher_stdin.log /tmp/sclang_post.log
-# reopen a .scd file in Zed after clearing logs
-
-# If quark changes not picked up:
-cp server/quark/LanguageServer.quark/Providers/HoverProvider.sc \
-   ~/Library/Application\ Support/SuperCollider/downloaded-quarks/LanguageServer/Providers/HoverProvider.sc
-pkill -9 sclang
-```
+## Build/Test (quick pointers)
+- Extension rebuild: In Zed → Extensions → Rebuild (or cmd-shift-p → reload extensions).
+- Launcher build: `cd server/launcher && cargo build --release`.
+- Quick checks: `grep -i "definition\|references" /tmp/sc_launcher_stdin.log`; `curl -X POST -d "1 + 1" http://127.0.0.1:57130/eval`; `grep -i "error\\|exception\\|dnu" /tmp/sclang_post.log`.
+- Full command references in `.ai/commands.md`.
 
 ## Critical Anti-Patterns
 
@@ -121,38 +93,19 @@ commands = (
 
 Zed extension API cannot invoke `workspace/executeCommand` (Issue #13756). Use HTTP channel instead (see .ai/decisions/001-http-not-lsp.md).
 
-## Essential Patterns
+## Prep Checklist (before coding)
+- Ensure dev launcher built only when present; otherwise rely on PATH/settings.
+- Keep language config minimal; run `scripts/validate-config.sh` if present.
+- Use vendored quark for edits; do not overwrite user-installed quark without consent.
+- Clean logs if testing locally: remove `/tmp/sc_launcher_stdin.log` and `/tmp/sclang_post.log`; restart launcher/sclang as needed.
+- Keep docs in sync: when state changes, update `.ai/tasks/2026-01-05-execution-plan.md`, this context, and add research notes as needed; follow existing doc structure.
+- Git hygiene: make small, focused commits (code + related doc updates together), avoid force pushes/reverts of user changes, and mirror the existing concise style (e.g., `fix(extension): ...`, `docs: ...`). Commit when you land a coherent step; keep working tree clean between steps.
 
-### Initialize SC classvars in *initClass
-
-```supercollider
-TextDocumentProvider {
-    classvar <pendingOpens, <pendingChanges, <initialized;
-
-    *initClass {
-        pendingOpens = Array.new;
-        pendingChanges = Array.new;
-        initialized = false;
-    }
-}
-```
-
-**Why:** Prevents DNUs when provider code loads before initialization.
-
-### Handle nil dictionary keys
-
-```supercollider
-allMethodsByName[method.name] = (allMethodsByName[method.name] ?? { Array.new }).add(method);
-```
-
-### Copy Quark changes to system
-
-After editing files in `server/quark/LanguageServer.quark/`:
-```bash
-cp server/quark/LanguageServer.quark/File.sc \
-   ~/Library/Application\ Support/SuperCollider/downloaded-quarks/LanguageServer/File.sc
-pkill -9 sclang
-```
+## Essential Patterns (SuperCollider)
+- Initialize classvars in `*initClass`.
+- Handle nil dictionary keys: `(dict[key] ?? { Array.new }).add(...)`.
+- Avoid `^` in dictionary functions; use expression returns.
+- Copy vendored quark to system only when intentionally testing there; prefer vendored path during development.
 
 ## Known Limitations (Don't Fix These)
 
@@ -238,7 +191,7 @@ curl -X POST -d "1 + 1" http://127.0.0.1:57130/eval
 - `.ai/architecture.md` - System design and data flows
 - `.ai/conventions.md` - Code patterns and anti-patterns
 - `.ai/commands.md` - Build/test/debug commands
-- `.ai/improvements.md` - Enhancement backlog
+- `.ai/tasks/2026-01-05-execution-plan.md` - Consolidated enhancement/backlog plan
 - `.ai/decisions/` - Architectural Decision Records
 - `.ai/research/` - Investigation findings
 - `.ai/prompts/` - Task templates

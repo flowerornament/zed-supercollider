@@ -58,7 +58,7 @@ Additional LSP features implemented after navigation fix:
 - textDocument/codeLens, workspace/symbol
 - Cross-file navigation, large file handling
 
-See `.ai/improvements.md` for future enhancement priorities.
+See `.ai/tasks/2026-01-05-execution-plan.md` for current enhancement priorities.
 
 ## Debugging Commands
 

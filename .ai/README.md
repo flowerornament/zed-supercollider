@@ -15,8 +15,7 @@ Read `context.md` first - primary entry point with project overview, current sta
   architecture.md              # System design deep dive
   conventions.md               # Code patterns and anti-patterns
   commands.md                  # All build/test/debug commands
-  improvements.md              # Prioritized enhancement backlog
-  improvements-detailed.md     # Detailed implementation examples (reference)
+  tasks/2026-01-05-execution-plan.md # Consolidated backlog/plan
 
   decisions/                   # Architectural Decision Records (ADRs)
     001-http-not-lsp.md        # Why HTTP instead of LSP executeCommand
@@ -39,7 +38,7 @@ Read `context.md` first - primary entry point with project overview, current sta
 
 **commands.md** - Build, test, debug commands
 
-**improvements.md** - Enhancement backlog
+**tasks/2026-01-05-execution-plan.md** - Consolidated backlog/plan
 
 **decisions/** - Architectural Decision Records (ADRs) documenting key decisions and their rationale
 
