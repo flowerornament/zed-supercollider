@@ -201,37 +201,43 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     let (stdin_done_tx, stdin_done_rx) = mpsc::channel();
 
-    // Block until sclang reports LSP READY or timeout
-    let mut waited_ms = 0u64;
-    let max_wait_ms = 60_000u64; // 60s
-    loop {
-        if let Ok(()) = ready_rx.try_recv() {
-            eprintln!("[sc_launcher] detected 'LSP READY' from sclang");
-            break;
-        }
-        if waited_ms >= max_wait_ms {
-            eprintln!(
-                "[sc_launcher] timed out waiting for 'LSP READY' ({}s)",
-                max_wait_ms / 1000
-            );
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-        waited_ms += 50;
-    }
-    let mut stdin_closed = false;
-
+    // Start the stdin bridge IMMEDIATELY to capture the initialize request from Zed.
+    // The bridge will buffer messages until sclang is ready.
+    let sclang_ready = Arc::new(AtomicBool::new(false));
     let stdin_bridge = {
         let udp = udp_sender
             .try_clone()
             .context("failed to clone UDP sender socket")?;
         let shutdown = shutdown.clone();
         let done_tx = stdin_done_tx.clone();
+        let ready_flag = sclang_ready.clone();
         thread::Builder::new()
             .name("stdin->udp".into())
-            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx))
+            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag))
             .context("failed to spawn stdin->udp bridge thread")?
     };
+
+    // Wait for sclang to report LSP READY, then signal the stdin bridge
+    let mut waited_ms = 0u64;
+    let max_wait_ms = 60_000u64; // 60s
+    loop {
+        if let Ok(()) = ready_rx.try_recv() {
+            eprintln!("[sc_launcher] detected 'LSP READY' from sclang");
+            sclang_ready.store(true, Ordering::SeqCst);
+            break;
+        }
+        if waited_ms >= max_wait_ms {
+            eprintln!(
+                "[sc_launcher] timed out waiting for 'LSP READY' ({}s); proceeding anyway",
+                max_wait_ms / 1000
+            );
+            sclang_ready.store(true, Ordering::SeqCst);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        waited_ms += 50;
+    }
+    let mut stdin_closed = false;
 
     let stdout_bridge = {
         let udp = udp_receiver;
@@ -435,11 +441,32 @@ fn pump_stdin_to_udp(
     socket: UdpSocket,
     shutdown: Arc<AtomicBool>,
     done_tx: mpsc::Sender<()>,
+    sclang_ready: Arc<AtomicBool>,
 ) -> Result<()> {
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
 
+    // Buffer messages until sclang is ready
+    let mut pending_messages: Vec<Vec<u8>> = Vec::new();
+    let mut ready_signaled = false;
+
     while !shutdown.load(Ordering::SeqCst) {
+        // Check if sclang became ready and flush buffered messages
+        if !ready_signaled && sclang_ready.load(Ordering::SeqCst) {
+            ready_signaled = true;
+            if !pending_messages.is_empty() {
+                eprintln!(
+                    "[sc_launcher] sclang ready, flushing {} buffered messages",
+                    pending_messages.len()
+                );
+                for msg in pending_messages.drain(..) {
+                    if let Err(err) = send_with_retry(&socket, &msg) {
+                        eprintln!("[sc_launcher] failed to send buffered UDP message: {err}");
+                    }
+                }
+            }
+        }
+
         match read_lsp_message(&mut reader) {
             Ok(Some(message)) => {
                 // Log incoming LSP method for debugging
@@ -449,9 +476,10 @@ fn pump_stdin_to_udp(
                         if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
                             if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
                                 eprintln!(
-                                    "[sc_launcher] << LSP request: {} (id={:?})",
+                                    "[sc_launcher] << LSP request: {} (id={:?}){}",
                                     method,
-                                    json.get("id")
+                                    json.get("id"),
+                                    if !ready_signaled { " [BUFFERED]" } else { "" }
                                 );
 
                                 // Log full initialize request to see client capabilities
@@ -471,10 +499,15 @@ fn pump_stdin_to_udp(
                     }
                 }
 
-                if let Err(err) = send_with_retry(&socket, &message) {
-                    eprintln!(
-                        "[sc_launcher] failed to send UDP message to sclang after retries: {err}"
-                    );
+                // If sclang isn't ready yet, buffer the message; otherwise send immediately
+                if ready_signaled {
+                    if let Err(err) = send_with_retry(&socket, &message) {
+                        eprintln!(
+                            "[sc_launcher] failed to send UDP message to sclang after retries: {err}"
+                        );
+                    }
+                } else {
+                    pending_messages.push(message);
                 }
             }
             Ok(None) => {
