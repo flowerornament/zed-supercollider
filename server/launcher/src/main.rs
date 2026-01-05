@@ -53,26 +53,44 @@ struct Args {
     http_port: u16,
 }
 
+fn log_dir() -> std::path::PathBuf {
+    std::env::var_os("SC_TMP_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir())
+}
+
+fn debug_file_logs_enabled() -> bool {
+    std::env::var("SC_LAUNCHER_DEBUG_LOGS").is_ok()
+}
+
+fn verbose_logging_enabled() -> bool {
+    debug_file_logs_enabled() || std::env::var("SC_LAUNCHER_DEBUG").is_ok()
+}
+
 fn main() -> Result<()> {
     // Write startup log to a file since stderr may be buffered/filtered by Zed
-    let startup_log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/sc_launcher_startup.log");
-    if let Ok(mut f) = startup_log {
-        use std::io::Write;
-        let _ = writeln!(
-            f,
-            "\n======== MAIN STARTED at {:?} ========",
-            std::time::SystemTime::now()
-        );
-        let _ = writeln!(
-            f,
-            "PID={} args={:?}",
-            std::process::id(),
-            std::env::args().collect::<Vec<_>>()
-        );
-        let _ = writeln!(f, "exe={:?}", std::env::current_exe());
+    if debug_file_logs_enabled() {
+        let log_path = log_dir().join("sc_launcher_startup.log");
+        let startup_log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path);
+        if let Ok(mut f) = startup_log {
+            use std::io::Write;
+            let _ = writeln!(
+                f,
+                "\n======== MAIN STARTED at {:?} ========",
+                std::time::SystemTime::now()
+            );
+            let _ = writeln!(
+                f,
+                "PID={} args={:?}",
+                std::process::id(),
+                std::env::args().collect::<Vec<_>>()
+            );
+            let _ = writeln!(f, "exe={:?}", std::env::current_exe());
+            let _ = writeln!(f, "log_dir={:?}", log_dir());
+        }
     }
 
     // Also try stderr
@@ -112,11 +130,15 @@ fn main() -> Result<()> {
                 ));
             }
             // Emit a simple JSON probe result to stdout to support a "Check setup" command.
-            let json = format!(
-                "{{\"ok\":true,\"sclang\":{{\"path\":\"{}\"}},\"note\":\"use --mode lsp to start the LanguageServer bridge\"}}",
-                sclang.replace('"', "\\\"")
-            );
-            println!("{}", json);
+            let probe = serde_json::json!({
+                "ok": true,
+                "sclang": {
+                    "path": sclang,
+                    "version": String::from_utf8_lossy(&output.stdout).trim()
+                },
+                "note": "use --mode lsp to start the LanguageServer bridge"
+            });
+            println!("{}", probe.to_string());
             Ok(())
         }
         Mode::Lsp => run_lsp_bridge(&sclang, &args),
@@ -135,14 +157,6 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     if !quark_ok {
         eprintln!("[sc_launcher] warning: LanguageServer.quark not found in downloaded-quarks; install it via SuperCollider's Quarks GUI or `Quarks.install(\"LanguageServer\");`");
     }
-
-    // Kill any existing sclang processes to prevent duplicates
-    // This ensures clean startup when reloading extensions or opening multiple files
-    eprintln!("[sc_launcher] cleaning up any existing sclang processes...");
-    let _ = Command::new("pkill").arg("-9").arg("sclang").output();
-
-    // Small delay to ensure processes are cleaned up
-    std::thread::sleep(Duration::from_millis(100));
 
     let ports = allocate_udp_ports().context("failed to reserve UDP ports for LSP bridge")?;
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -326,7 +340,9 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break Ok(status),
+            Ok(Some(exit_status)) => {
+                break Ok(exit_status);
+            }
             Ok(None) => {}
             Err(err) => {
                 break Err(anyhow!("failed to poll sclang status: {err}"));
@@ -334,10 +350,10 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         }
 
         if stdin_done_rx.try_recv().is_ok() {
-            eprintln!("[sc_launcher] stdin closed; shutting down sclang");
-            let _ = child.kill();
             stdin_closed = true;
-            break child.wait().context("failed to wait for sclang after kill");
+            let exit_status = graceful_shutdown_child(&mut child, &udp_sender, Duration::from_secs(5))
+                .context("failed to shut down sclang after stdin closed")?;
+            break Ok(exit_status);
         }
 
         thread::sleep(Duration::from_millis(50));
@@ -419,11 +435,12 @@ fn log_child_stream<R>(
 where
     R: Read + Send + 'static,
 {
+    let verbose = verbose_logging_enabled();
     thread::Builder::new()
         .name(format!("{label}-reader"))
         .spawn(move || {
             // Open post window log file for user-visible output
-            let post_log_path = std::path::PathBuf::from("/tmp/sclang_post.log");
+            let post_log_path = log_dir().join("sclang_post.log");
             let mut post_file = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -442,7 +459,9 @@ where
                 }
                 let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
                 if !trimmed.is_empty() {
-                    eprintln!("[{label}] {trimmed}");
+                    if verbose {
+                        eprintln!("[{label}] {trimmed}");
+                    }
 
                     // Write stdout to post window log file (filter out verbose LSP debug messages)
                     if let Some(ref mut f) = post_file {
@@ -552,17 +571,11 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
                 "referencesProvider": true,
                 "selectionRangeProvider": {},
                 "foldingRangeProvider": {},
-                "documentSymbolProvider": {},
                 "codeLensProvider": {},
                 "codeActionProvider": {
                     "codeActionKinds": ["source"]
                 },
-                "documentOnTypeFormattingProvider": {
-                    "firstTriggerCharacter": "\n",
-                    "moreTriggerCharacter": [")", "}", "|", ";"]
-                },
                 "workspaceSymbolProvider": {},
-                "serverStatus": {},
                 "executeCommandProvider": {
                     "commands": [
                         "supercollider.eval",
@@ -583,6 +596,64 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
     })
 }
 
+fn graceful_shutdown_child(
+    child: &mut std::process::Child,
+    udp_socket: &UdpSocket,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus> {
+    eprintln!(
+        "[sc_launcher] stdin closed; requesting LSP shutdown (timeout {:?})",
+        timeout
+    );
+    request_lsp_shutdown(udp_socket);
+
+    if let Some(stdin) = child.stdin.take() {
+        drop(stdin);
+    }
+
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(err) => return Err(anyhow!("failed to poll sclang status: {err}")),
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    #[cfg(unix)]
+    {
+        let pid = child.id();
+        eprintln!("[sc_launcher] sending SIGTERM to sclang pid {}", pid);
+        let _ = Command::new("kill")
+            .arg("-TERM")
+            .arg(pid.to_string())
+            .status();
+
+        let term_start = std::time::Instant::now();
+        while term_start.elapsed() < Duration::from_secs(2) {
+            match child.try_wait() {
+                Ok(Some(status)) => return Ok(status),
+                Ok(None) => {}
+                Err(err) => {
+                    return Err(anyhow!(
+                        "failed to poll sclang status after SIGTERM: {err}"
+                    ))
+                }
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    eprintln!("[sc_launcher] forcing sclang shutdown with kill");
+    child
+        .kill()
+        .context("failed to kill sclang process after shutdown request")?;
+    child
+        .wait()
+        .context("failed to wait for sclang after forced shutdown")
+}
+
 fn pump_stdin_to_udp(
     socket: UdpSocket,
     shutdown: Arc<AtomicBool>,
@@ -590,17 +661,21 @@ fn pump_stdin_to_udp(
     sclang_ready: Arc<AtomicBool>,
     responded_ids: Arc<Mutex<HashSet<String>>>,
 ) -> Result<()> {
+    let verbose = verbose_logging_enabled();
     // Cache the most recent didOpen/didChange to resend after providers register.
     let cached_did_open: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
     let cached_did_change: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
 
-    // Log to file for debugging
-    let mut debug_log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/sc_launcher_stdin.log")
-        .ok();
-    if let Some(ref mut f) = debug_log {
+    let mut stdin_log = if debug_file_logs_enabled() {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir().join("sc_launcher_stdin.log"))
+            .ok()
+    } else {
+        None
+    };
+    if let Some(ref mut f) = stdin_log {
         use std::io::Write;
         let _ = writeln!(
             f,
@@ -609,16 +684,22 @@ fn pump_stdin_to_udp(
         );
     }
 
-    eprintln!("[sc_launcher] pump_stdin_to_udp: ENTERED FUNCTION");
-    let _ = std::io::stderr().flush();
+    if verbose {
+        eprintln!("[sc_launcher] pump_stdin_to_udp: ENTERED FUNCTION");
+        let _ = std::io::stderr().flush();
+    }
 
     let stdin = io::stdin();
-    eprintln!("[sc_launcher] pump_stdin_to_udp: got stdin handle");
-    let _ = std::io::stderr().flush();
+    if verbose {
+        eprintln!("[sc_launcher] pump_stdin_to_udp: got stdin handle");
+        let _ = std::io::stderr().flush();
+    }
 
     let mut reader = BufReader::new(stdin.lock());
-    eprintln!("[sc_launcher] pump_stdin_to_udp: created BufReader with stdin lock");
-    let _ = std::io::stderr().flush();
+    if verbose {
+        eprintln!("[sc_launcher] pump_stdin_to_udp: created BufReader with stdin lock");
+        let _ = std::io::stderr().flush();
+    }
 
     // Use a channel to queue messages for sending (allows separate flush thread)
     let (msg_tx, msg_rx) = mpsc::channel::<Vec<u8>>();
@@ -631,14 +712,18 @@ fn pump_stdin_to_udp(
     let sender_shutdown = shutdown.clone();
     let resend_did_open = cached_did_open.clone();
     let resend_did_change = cached_did_change.clone();
-    eprintln!("[sc_launcher] pump_stdin_to_udp: about to spawn sender thread");
-    let _ = std::io::stderr().flush();
+    if verbose {
+        eprintln!("[sc_launcher] pump_stdin_to_udp: about to spawn sender thread");
+        let _ = std::io::stderr().flush();
+    }
     let sender_thread = thread::Builder::new()
         .name("stdin-sender".into())
         .spawn(move || {
             let sender_start = std::time::Instant::now();
-            eprintln!("[sc_launcher] stdin-sender thread started at t=0ms");
-            let _ = std::io::stderr().flush();
+            if verbose {
+                eprintln!("[sc_launcher] stdin-sender thread started at t=0ms");
+                let _ = std::io::stderr().flush();
+            }
             let mut pending_messages: Vec<Vec<u8>> = Vec::new();
             let mut ready_signaled = false;
 
@@ -646,31 +731,39 @@ fn pump_stdin_to_udp(
                 // Check for ready signal
                 if !ready_signaled && sender_ready.load(Ordering::SeqCst) {
                     ready_signaled = true;
-                    eprintln!(
-                        "[sc_launcher] sender thread: sclang ready at t={}ms, {} messages buffered",
-                        sender_start.elapsed().as_millis(),
-                        pending_messages.len()
-                    );
+                    if verbose {
+                        eprintln!(
+                            "[sc_launcher] sender thread: sclang ready at t={}ms, {} messages buffered",
+                            sender_start.elapsed().as_millis(),
+                            pending_messages.len()
+                        );
+                    }
                     // Resend last didOpen/didChange after providers are likely registered.
                     if let Some(open_msg) = resend_did_open.lock().ok().and_then(|m| m.clone()) {
-                        eprintln!(
-                            "[sc_launcher] re-sending cached textDocument/didOpen after sclang ready"
-                        );
+                        if verbose {
+                            eprintln!(
+                                "[sc_launcher] re-sending cached textDocument/didOpen after sclang ready"
+                            );
+                        }
                         pending_messages.push(open_msg);
                     }
                     if let Some(change_msg) = resend_did_change.lock().ok().and_then(|m| m.clone())
                     {
-                        eprintln!(
-                            "[sc_launcher] re-sending cached textDocument/didChange after sclang ready"
-                        );
+                        if verbose {
+                            eprintln!(
+                                "[sc_launcher] re-sending cached textDocument/didChange after sclang ready"
+                            );
+                        }
                         pending_messages.push(change_msg);
                     }
                     if !pending_messages.is_empty() {
-                        eprintln!(
-                            "[sc_launcher] sclang ready, flushing {} buffered messages at t={}ms",
-                            pending_messages.len(),
-                            sender_start.elapsed().as_millis()
-                        );
+                        if verbose {
+                            eprintln!(
+                                "[sc_launcher] sclang ready, flushing {} buffered messages at t={}ms",
+                                pending_messages.len(),
+                                sender_start.elapsed().as_millis()
+                            );
+                        }
                         for msg in pending_messages.drain(..) {
                             if let Err(err) = send_with_retry(&sender_socket, &msg) {
                                 eprintln!(
@@ -678,12 +771,16 @@ fn pump_stdin_to_udp(
                                 );
                             }
                         }
-                        eprintln!(
-                            "[sc_launcher] finished flushing buffered messages at t={}ms",
-                            sender_start.elapsed().as_millis()
-                        );
+                        if verbose {
+                            eprintln!(
+                                "[sc_launcher] finished flushing buffered messages at t={}ms",
+                                sender_start.elapsed().as_millis()
+                            );
+                        }
                     } else {
-                        eprintln!("[sc_launcher] sclang ready, no buffered messages to flush");
+                        if verbose {
+                            eprintln!("[sc_launcher] sclang ready, no buffered messages to flush");
+                        }
                     }
                 }
 
@@ -721,12 +818,6 @@ fn pump_stdin_to_udp(
     eprintln!("[sc_launcher] stdin reader: starting main loop");
     let _ = std::io::stderr().flush();
 
-    // File-based logging for stdin messages
-    let mut stdin_log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/sc_launcher_stdin.log")
-        .ok();
     if let Some(ref mut f) = stdin_log {
         use std::io::Write;
         let _ = writeln!(
@@ -742,10 +833,12 @@ fn pump_stdin_to_udp(
         match read_lsp_message(&mut reader) {
             Ok(Some(message)) => {
                 msg_count += 1;
-                eprintln!(
-                    "[sc_launcher] stdin reader: got message {} bytes",
-                    message.len()
-                );
+                if verbose {
+                    eprintln!(
+                        "[sc_launcher] stdin reader: got message {} bytes",
+                        message.len()
+                    );
+                }
                 // Log to file
                 if let Some(ref mut f) = stdin_log {
                     use std::io::Write;
@@ -767,13 +860,15 @@ fn pump_stdin_to_udp(
                         let body = &body_str[body_start + 4..];
                         if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
                             if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
-                                eprintln!(
-                                    "[sc_launcher] << LSP request: {} (id={:?}) size={} {}",
-                                    method,
-                                    json.get("id"),
-                                    message.len(),
-                                    if is_buffered { "[BUFFERED]" } else { "" }
-                                );
+                                if verbose {
+                                    eprintln!(
+                                        "[sc_launcher] << LSP request: {} (id={:?}) size={} {}",
+                                        method,
+                                        json.get("id"),
+                                        message.len(),
+                                        if is_buffered { "[BUFFERED]" } else { "" }
+                                    );
+                                }
                                 // Cache last didOpen/didChange so we can replay after sclang is ready.
                                 if method == "textDocument/didOpen" {
                                     if let Ok(mut slot) = cached_did_open.lock() {
@@ -807,7 +902,9 @@ fn pump_stdin_to_udp(
                                         if let Err(e) = stdout.flush() {
                                             eprintln!("[sc_launcher] failed to flush initialize response: {}", e);
                                         }
-                                        eprintln!("[sc_launcher] sent initialize response to Zed");
+                                        if verbose {
+                                            eprintln!("[sc_launcher] sent initialize response to Zed");
+                                        }
 
                                         // Log to file
                                         if let Some(ref mut f) = stdin_log {
@@ -824,7 +921,9 @@ fn pump_stdin_to_udp(
                                         let id_str = id.to_string();
                                         if let Ok(mut set) = responded_ids.lock() {
                                             set.insert(id_str.clone());
-                                            eprintln!("[sc_launcher] recorded responded id={} for suppression", id_str);
+                                            if verbose {
+                                                eprintln!("[sc_launcher] recorded responded id={} for suppression", id_str);
+                                            }
                                         }
 
                                         // Still forward to sclang so it can set up its state
@@ -870,13 +969,16 @@ fn pump_udp_to_stdout(
     shutdown: Arc<AtomicBool>,
     responded_ids: Arc<Mutex<HashSet<String>>>,
 ) -> Result<()> {
+    let verbose = verbose_logging_enabled();
     let start = std::time::Instant::now();
-    eprintln!(
-        "[sc_launcher] UDP->stdout bridge STARTED at t=0ms, listening on {:?}",
-        socket.local_addr()
-    );
-    // Force flush stderr immediately so this message appears
-    let _ = std::io::stderr().flush();
+    if verbose {
+        eprintln!(
+            "[sc_launcher] UDP->stdout bridge STARTED at t=0ms, listening on {:?}",
+            socket.local_addr()
+        );
+        // Force flush stderr immediately so this message appears
+        let _ = std::io::stderr().flush();
+    }
     let mut dgram_buf = vec![0u8; 64 * 1024];
     let mut stdout = io::stdout();
 
@@ -929,12 +1031,14 @@ fn pump_udp_to_stdout(
                     continue;
                 }
                 total_packets += 1;
-                eprintln!(
-                    "[sc_launcher] UDP packet #{} received: {} bytes at t={}ms",
-                    total_packets,
-                    size,
-                    start.elapsed().as_millis()
-                );
+                if verbose {
+                    eprintln!(
+                        "[sc_launcher] UDP packet #{} received: {} bytes at t={}ms",
+                        total_packets,
+                        size,
+                        start.elapsed().as_millis()
+                    );
+                }
                 acc.extend_from_slice(&dgram_buf[..size]);
 
                 // Process as many complete messages as are buffered.
@@ -978,9 +1082,11 @@ fn pump_udp_to_stdout(
                         }
 
                         if patched {
-                            eprintln!(
-                                "[sc_launcher] patched missing jsonrpc field in server message"
-                            );
+                            if verbose {
+                                eprintln!(
+                                    "[sc_launcher] patched missing jsonrpc field in server message"
+                                );
+                            }
                         }
 
                         // Check if this is a response to a request we've already handled
@@ -992,10 +1098,12 @@ fn pump_udp_to_stdout(
                                 if let Ok(set) = responded_ids.lock() {
                                     if set.contains(&id_str) {
                                         should_suppress = true;
-                                        eprintln!(
-                                            "[sc_launcher] SUPPRESSING duplicate response for id={} (already responded from launcher)",
-                                            id_str
-                                        );
+                                        if verbose {
+                                            eprintln!(
+                                                "[sc_launcher] SUPPRESSING duplicate response for id={} (already responded from launcher)",
+                                                id_str
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -1020,51 +1128,55 @@ fn pump_udp_to_stdout(
                             eprintln!("[sc_launcher] failed to flush stdout: {err}");
                             break;
                         }
-                        let preview = String::from_utf8_lossy(&body[..body.len().min(200)]);
-                        eprintln!(
-                            "[sc_launcher] >> {} bytes to stdout (first 200): {}",
-                            body.len(),
-                            preview
-                        );
-                        // Extra: log if this looks like an initialize response (has capabilities)
-                        if body.len() > 50 {
-                            let body_str = String::from_utf8_lossy(&body);
-                            if body_str.contains("capabilities") {
-                                eprintln!(
-                                    "[sc_launcher] !!! CAPABILITIES DETECTED in response at t={}ms !!!",
-                                    start.elapsed().as_millis()
-                                );
-                                eprintln!("[sc_launcher] FULL RESPONSE: {}", body_str);
+                        if verbose {
+                            let preview = String::from_utf8_lossy(&body[..body.len().min(200)]);
+                            eprintln!(
+                                "[sc_launcher] >> {} bytes to stdout (first 200): {}",
+                                body.len(),
+                                preview
+                            );
+                            // Extra: log if this looks like an initialize response (has capabilities)
+                            if body.len() > 50 {
+                                let body_str = String::from_utf8_lossy(&body);
+                                if body_str.contains("capabilities") {
+                                    eprintln!(
+                                        "[sc_launcher] !!! CAPABILITIES DETECTED in response at t={}ms !!!",
+                                        start.elapsed().as_millis()
+                                    );
+                                    eprintln!("[sc_launcher] FULL RESPONSE: {}", body_str);
+                                }
                             }
                         }
 
                         // Log full initialize response for debugging capabilities
-                        if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
-                            // Check for capabilities in result (initialize response)
-                            if let Some(result) = json.get("result") {
-                                if result.get("capabilities").is_some() {
+                        if verbose {
+                            if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
+                                // Check for capabilities in result (initialize response)
+                                if let Some(result) = json.get("result") {
+                                    if result.get("capabilities").is_some() {
+                                        eprintln!(
+                                            "[sc_launcher] *** SERVER CAPABILITIES ***:\n{}",
+                                            serde_json::to_string_pretty(
+                                                result.get("capabilities").unwrap()
+                                            )
+                                            .unwrap_or_default()
+                                        );
+                                    }
+                                }
+                                // Log all response ids for debugging
+                                if let Some(id) = json.get("id") {
                                     eprintln!(
-                                        "[sc_launcher] *** SERVER CAPABILITIES ***:\n{}",
-                                        serde_json::to_string_pretty(
-                                            result.get("capabilities").unwrap()
-                                        )
-                                        .unwrap_or_default()
+                                        "[sc_launcher] >> response id={} type={}",
+                                        id,
+                                        if id.is_i64() {
+                                            "int"
+                                        } else if id.is_string() {
+                                            "str"
+                                        } else {
+                                            "?"
+                                        }
                                     );
                                 }
-                            }
-                            // Log all response ids for debugging
-                            if let Some(id) = json.get("id") {
-                                eprintln!(
-                                    "[sc_launcher] >> response id={} type={}",
-                                    id,
-                                    if id.is_i64() {
-                                        "int"
-                                    } else if id.is_string() {
-                                        "str"
-                                    } else {
-                                        "?"
-                                    }
-                                );
                             }
                         }
 
@@ -1096,22 +1208,25 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
     const MAX_RETRY_MS: u64 = 90_000;
     // Match LanguageServer.quark's maxSize for UDP chunking
     const MAX_CHUNK_SIZE: usize = 6000;
+    let verbose = verbose_logging_enabled();
 
     let mut attempts = 0usize;
     let max_attempts = (MAX_RETRY_MS / RETRY_SLEEP_MS) as usize;
 
     // Log what we're sending (extract method if possible)
-    if let Ok(msg_str) = std::str::from_utf8(message) {
-        if let Some(body_start) = msg_str.find("\r\n\r\n") {
-            let body = &msg_str[body_start + 4..];
-            if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
-                if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
-                    eprintln!(
-                        "[sc_launcher] >>> SENDING to sclang: method={} id={:?} size={}",
-                        method,
-                        json.get("id"),
-                        message.len()
-                    );
+    if verbose {
+        if let Ok(msg_str) = std::str::from_utf8(message) {
+            if let Some(body_start) = msg_str.find("\r\n\r\n") {
+                let body = &msg_str[body_start + 4..];
+                if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
+                    if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
+                        eprintln!(
+                            "[sc_launcher] >>> SENDING to sclang: method={} id={:?} size={}",
+                            method,
+                            json.get("id"),
+                            message.len()
+                        );
+                    }
                 }
             }
         }
@@ -1129,11 +1244,13 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
                     ))
                 }
                 Err(err) if err.kind() == ErrorKind::ConnectionRefused => {
-                    if attempts == 0 || attempts % 40 == 0 {
-                        eprintln!(
-                            "[sc_launcher] Connection refused sending to sclang (attempt {}): {err}",
-                            attempts + 1
-                        );
+                    if verbose {
+                        if attempts == 0 || attempts % 40 == 0 {
+                            eprintln!(
+                                "[sc_launcher] Connection refused sending to sclang (attempt {}): {err}",
+                                attempts + 1
+                            );
+                        }
                     }
                     if attempts >= max_attempts {
                         return Err(io::Error::new(
@@ -1155,11 +1272,13 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
     }
 
     // Large message: chunk it like LanguageServer.quark does
-    eprintln!(
-        "[sc_launcher] chunking large message ({} bytes) into {} chunks",
-        message.len(),
-        (message.len() + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE
-    );
+    if verbose {
+        eprintln!(
+            "[sc_launcher] chunking large message ({} bytes) into {} chunks",
+            message.len(),
+            (message.len() + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE
+        );
+    }
 
     let mut offset = 0;
     while offset < message.len() {
@@ -1176,11 +1295,13 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
                     ))
                 }
                 Err(err) if err.kind() == ErrorKind::ConnectionRefused => {
-                    if attempts == 0 || attempts % 40 == 0 {
-                        eprintln!(
-                            "[sc_launcher] Connection refused sending chunk (attempt {}): {err}",
-                            attempts + 1
-                        );
+                    if verbose {
+                        if attempts == 0 || attempts % 40 == 0 {
+                            eprintln!(
+                                "[sc_launcher] Connection refused sending chunk (attempt {}): {err}",
+                                attempts + 1
+                            );
+                        }
                     }
                     if attempts >= max_attempts {
                         return Err(io::Error::new(
@@ -1285,8 +1406,20 @@ fn ensure_quark_present() -> bool {
     !installed_quark_paths().is_empty()
 }
 
-/// Global request ID counter for HTTP-originated LSP requests.
-static HTTP_REQUEST_ID: AtomicU64 = AtomicU64::new(1_000_000);
+/// Global request ID counter for launcher-originated LSP requests.
+static NEXT_LSP_REQUEST_ID: AtomicU64 = AtomicU64::new(1_000_000);
+
+fn next_lsp_request_id() -> u64 {
+    NEXT_LSP_REQUEST_ID.fetch_add(1, Ordering::SeqCst)
+}
+
+fn send_lsp_payload(udp_socket: &UdpSocket, payload: &serde_json::Value) -> io::Result<()> {
+    let lsp_json =
+        serde_json::to_string(payload).map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+    let lsp_message = format!("Content-Length: {}\r\n\r\n{}", lsp_json.len(), lsp_json);
+
+    udp_socket.send(lsp_message.as_bytes()).map(|_| ())
+}
 
 /// Run the HTTP server for eval requests.
 /// Accepts POST /eval with code in the body, sends workspace/executeCommand to sclang.
@@ -1380,7 +1513,7 @@ fn handle_http_request(
         }
 
         // Send workspace/executeCommand to sclang via UDP
-        let request_id = HTTP_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
+        let request_id = next_lsp_request_id();
         let lsp_request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": request_id,
@@ -1391,10 +1524,7 @@ fn handle_http_request(
             }
         });
 
-        let lsp_json = lsp_request.to_string();
-        let lsp_message = format!("Content-Length: {}\r\n\r\n{}", lsp_json.len(), lsp_json);
-
-        match udp_socket.send(lsp_message.as_bytes()) {
+        match send_lsp_payload(udp_socket, &lsp_request) {
             Ok(_) => {
                 eprintln!(
                     "[sc_launcher] HTTP /eval sent {} bytes to sclang (id={})",
@@ -1468,7 +1598,7 @@ fn send_command(
     command: &str,
     arguments: &[&str],
 ) -> Response<std::io::Cursor<Vec<u8>>> {
-    let request_id = HTTP_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
+    let request_id = next_lsp_request_id();
     let args: Vec<serde_json::Value> = arguments.iter().map(|s| serde_json::json!(s)).collect();
     let lsp_request = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1480,10 +1610,7 @@ fn send_command(
         }
     });
 
-    let lsp_json = lsp_request.to_string();
-    let lsp_message = format!("Content-Length: {}\r\n\r\n{}", lsp_json.len(), lsp_json);
-
-    match udp_socket.send(lsp_message.as_bytes()) {
+    match send_lsp_payload(udp_socket, &lsp_request) {
         Ok(_) => {
             eprintln!(
                 "[sc_launcher] HTTP /{} sent command {} (id={})",
@@ -1520,6 +1647,29 @@ fn send_command(
                         .unwrap(),
                 )
         }
+    }
+}
+
+fn request_lsp_shutdown(udp_socket: &UdpSocket) {
+    let shutdown_id = next_lsp_request_id();
+    let shutdown_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": shutdown_id,
+        "method": "shutdown",
+        "params": {}
+    });
+
+    if let Err(err) = send_lsp_payload(udp_socket, &shutdown_request) {
+        eprintln!("[sc_launcher] failed to send shutdown request: {}", err);
+    }
+
+    let exit_notification = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "exit"
+    });
+
+    if let Err(err) = send_lsp_payload(udp_socket, &exit_notification) {
+        eprintln!("[sc_launcher] failed to send exit notification: {}", err);
     }
 }
 

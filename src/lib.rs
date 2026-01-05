@@ -10,8 +10,16 @@ fn dev_launcher_candidate(worktree: &zed::Worktree) -> Option<String> {
     if worktree.read_text_file("Cargo.toml").is_ok() {
         let root = worktree.root_path();
         let path = format!("{}/server/launcher/target/release/sc_launcher", root);
-        eprintln!("[supercollider] dev mode: using local launcher at {}", path);
-        Some(path)
+        if std::path::Path::new(&path).exists() {
+            eprintln!("[supercollider] dev mode: using local launcher at {}", path);
+            Some(path)
+        } else {
+            eprintln!(
+                "[supercollider] dev launcher missing at {} (run cargo build --release in server/launcher to enable dev mode)",
+                path
+            );
+            None
+        }
     } else {
         None
     }
@@ -90,7 +98,7 @@ impl zed::Extension for SuperColliderExtension {
 
         if cmd_path.is_none() {
             eprintln!("[supercollider] no launcher found via settings or PATH");
-            return Err("supercollider LSP launcher not found; set lsp.binary.path or add sc_launcher to PATH".into());
+            return Err("supercollider LSP launcher not found.\nSet lsp.supercollider.binary.path to the sc_launcher binary (args: [\"--mode\",\"lsp\",\"--http-port\",\"57130\"]) or add sc_launcher to PATH.\nEnsure LanguageServer.quark is installed via Quarks.install(\"LanguageServer\");".into());
         }
 
         // Arguments and env from settings if provided.
@@ -204,7 +212,7 @@ impl zed::Extension for SuperColliderExtension {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                let ok = out.status.unwrap_or(-1) == 0;
+                let ok = out.status.success();
                 let mut text = String::new();
                 text.push_str("SuperCollider: Check Setup\n\n");
                 text.push_str(&format!("status: {}\n", if ok { "ok" } else { "error" }));
@@ -217,6 +225,14 @@ impl zed::Extension for SuperColliderExtension {
                     text.push_str("\nstderr:\n");
                     text.push_str(stderr.trim());
                     text.push('\n');
+                }
+                if !ok {
+                    text.push_str(
+                        "\nTroubleshooting:\n\
+- Install LanguageServer.quark: Quarks.install(\"LanguageServer\");\n\
+- Example settings snippet:\n\
+  \"lsp\": { \"supercollider\": { \"binary\": { \"path\": \"/path/to/sc_launcher\", \"arguments\": [\"--mode\",\"lsp\",\"--http-port\",\"57130\"] } } }\n",
+                    );
                 }
                 Ok(zed::SlashCommandOutput {
                     text,

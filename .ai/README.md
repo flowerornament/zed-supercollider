@@ -15,7 +15,7 @@ Read `context.md` first - primary entry point with project overview, current sta
   architecture.md              # System design deep dive
   conventions.md               # Code patterns and anti-patterns
   commands.md                  # All build/test/debug commands
-  tasks/2026-01-05-execution-plan.md # Consolidated backlog/plan
+  tasks/2026-01-05-execution-plan.md # Consolidated backlog/plan (YAML front matter; see tasks/README.md)
 
   decisions/                   # Architectural Decision Records (ADRs)
     001-http-not-lsp.md        # Why HTTP instead of LSP executeCommand

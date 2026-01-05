@@ -7,6 +7,8 @@ Ship a stable Zed extension for SuperCollider: navigation, hover/completion, and
 - Read `.ai/tasks/2026-01-05-execution-plan.md` (single source of truth for priorities).
 - Honor anti-patterns below (config.toml minimal; no `^` returns in SC dicts; do not overwrite user-installed quark).
 - Use vendored quark for changes; never revert user modifications.
+- Task docs now use YAML front matter for status tracking (see `.ai/tasks/README.md`). Update `status`/`updated` and append to the `## Status Log` when making progress.
+- README is user-facing; contributor docs live here in `.ai/` (this file is the entry point; see `.ai/README.md` for the map).
 
 ## Architecture (mental model)
 - **Zed Extension (WASM)**: `src/lib.rs` selects launcher command, merges settings, and passes LSP traffic through stdio.

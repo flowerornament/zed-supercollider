@@ -4,3 +4,4 @@ path_suffixes = ["sc", "scd"]
 line_comments = ["// "]
 tab_size = 4
 hard_tabs = false
+word_characters = ["a-zA-Z0-9_?"]

@@ -1,6 +1,18 @@
+---
+title: "Execution Plan – Stability, Quality, and Delivery (Unified)"
+date: 2026-01-05
+priority: umbrella
+status: active
+owners: [team]
+updated: 2026-01-05
+---
+
 # Execution Plan – Stability, Quality, and Delivery (Unified)
 
 Single source of truth for finishing the SuperCollider Zed extension with high code quality, consistency, robustness, and maintainability. Merges the best items from `improvements.md`, `improvements-detailed.md`, and prior low-hanging fixes.
+
+## Status Log
+- 2026-01-05: Status set to active; focus is P0 items before moving to later phases.
 
 ## Goal
 Ship a stable, portable extension that avoids user-facing regressions/noise, aligns advertised capabilities with reality, and lays groundwork for performance and future features.
