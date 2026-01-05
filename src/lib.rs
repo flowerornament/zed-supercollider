@@ -6,18 +6,16 @@ use zed_extension_api::{
 struct SuperColliderExtension;
 
 fn dev_launcher_candidate(worktree: &zed::Worktree) -> Option<String> {
-    let root = worktree.root_path();
-    let debug = format!("{}/server/launcher/target/debug/sc_launcher", root);
-    let release = format!("{}/server/launcher/target/release/sc_launcher", root);
-    // For development: use local build if available
-    // Prefer debug build for latest fixes, fall back to release
-    // Use read_text_file as a file-exists check (WASM doesn't have std::path::Path::exists)
-    let debug_rel = "server/launcher/target/debug/sc_launcher";
-    let release_rel = "server/launcher/target/release/sc_launcher";
-    if worktree.read_text_file(debug_rel).is_ok() {
+    // For development: return local debug build path if we're in the extension's source directory
+    // Check for Cargo.toml to confirm we're in the right directory
+    if worktree.read_text_file("Cargo.toml").is_ok() {
+        let root = worktree.root_path();
+        let debug = format!("{}/server/launcher/target/debug/sc_launcher", root);
+        eprintln!(
+            "[supercollider] dev mode: using local launcher at {}",
+            debug
+        );
         Some(debug)
-    } else if worktree.read_text_file(release_rel).is_ok() {
-        Some(release)
     } else {
         None
     }
