@@ -17,6 +17,15 @@ Single source of truth for finishing the SuperCollider Zed extension with high c
 ## Goal
 Ship a stable, portable extension that avoids user-facing regressions/noise, aligns advertised capabilities with reality, and lays groundwork for performance and future features.
 
+## How to Use This Plan
+- Work from the highest-priority active file:
+  - P0: `.ai/tasks/2026-01-05-immediate-fixes.md`
+  - P1: `.ai/tasks/2026-01-05-short-term-hardening.md`
+  - P2: `.ai/tasks/2026-01-05-performance-quality.md`
+  - P3: `.ai/tasks/2026-01-05-features-dx.md`
+- Update the relevant file’s `status`/`updated` front matter and `## Status Log` when you make progress.
+- Keep this umbrella as the quick index; detailed bullets live in the priority files.
+
 ## Scope
 - Launcher (`server/launcher/src/main.rs`)
 - Extension entry (`src/lib.rs`)

@@ -14,6 +14,9 @@ Single-source checklist for shipping the highest-priority fixes. Use this when t
 ## Status Log
 - 2026-01-05: Status set to active; checklist items remain in flight.
 
+## Scope & Link
+- Highest-priority fixes to ship immediately. See umbrella: `.ai/tasks/2026-01-05-execution-plan.md`.
+
 ## Capability Hygiene
 - **Launcher initialize response**
   - Remove `serverStatus`, `documentSymbolProvider`, and on-type formatting from default capabilities.

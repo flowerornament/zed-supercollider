@@ -14,6 +14,9 @@ Targets to improve speed, memory, and overall efficiency after stability is prov
 ## Status Log
 - 2026-01-05: Status set to backlog; revisit after P0/P1 tasks.
 
+## Scope & Link
+- Performance/quality improvements after stability. See umbrella: `.ai/tasks/2026-01-05-execution-plan.md`.
+
 ## Indexing/Cache
 - Add LSPDatabase LRU cache for definitions/references; size-bound and eviction-aware.
 - Invalidate cache on recompile, file change, or relevant workspace events; hook into providers that mutate state.

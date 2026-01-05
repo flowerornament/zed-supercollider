@@ -14,6 +14,9 @@ Longer-term enhancements after stability/performance work. Prioritize based on u
 ## Status Log
 - 2026-01-05: Status set to backlog; activate after stability/performance work.
 
+## Scope & Link
+- Longer-term features/DX. See umbrella: `.ai/tasks/2026-01-05-execution-plan.md`.
+
 ## Progress Notifications
 - Implement standard `$ /progress` for indexing/long-running operations; throttle to avoid log noise.
 - Ensure client compatibility (Zed/VSCode) and provide clear titles/messages.

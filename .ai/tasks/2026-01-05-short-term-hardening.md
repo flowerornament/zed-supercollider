@@ -14,6 +14,9 @@ Robustness and correctness improvements once P0 is complete. Expand only after i
 ## Status Log
 - 2026-01-05: Status set to backlog; queued behind P0 fixes.
 
+## Scope & Link
+- Hardening after P0 is stable. See umbrella: `.ai/tasks/2026-01-05-execution-plan.md`.
+
 ## Graceful Shutdown Polish
 - Flush buffered UDP/LSP messages before closing sockets; ensure pending responses are written to stdout.
 - Track child PIDs explicitly; confirm only the launcher-spawned sclang/scsynth are terminated.
