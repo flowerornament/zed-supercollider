@@ -453,6 +453,19 @@ fn pump_stdin_to_udp(
                                     method,
                                     json.get("id")
                                 );
+
+                                // Log full initialize request to see client capabilities
+                                if method == "initialize" {
+                                    if let Some(params) = json.get("params") {
+                                        if let Some(caps) = params.get("capabilities") {
+                                            eprintln!(
+                                                "[sc_launcher] CLIENT CAPABILITIES: {}",
+                                                serde_json::to_string_pretty(caps)
+                                                    .unwrap_or_default()
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -594,12 +607,29 @@ fn pump_udp_to_stdout(socket: UdpSocket, shutdown: Arc<AtomicBool>) -> Result<()
                             eprintln!("[sc_launcher] failed to flush stdout: {err}");
                             break;
                         }
-                        let preview = String::from_utf8_lossy(&body[..body.len().min(120)]);
+                        let preview = String::from_utf8_lossy(&body[..body.len().min(200)]);
                         eprintln!(
                             "[sc_launcher] >> {} bytes to stdout: {}",
                             body.len(),
                             preview
                         );
+
+                        // Log full initialize response for debugging capabilities
+                        if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
+                            if json
+                                .get("result")
+                                .and_then(|r| r.get("capabilities"))
+                                .is_some()
+                            {
+                                eprintln!(
+                                    "[sc_launcher] SERVER CAPABILITIES: {}",
+                                    serde_json::to_string_pretty(
+                                        &json.get("result").unwrap().get("capabilities").unwrap()
+                                    )
+                                    .unwrap_or_default()
+                                );
+                            }
+                        }
 
                         // If the accumulator still contains more bytes, loop to parse them.
                         continue 'outer;
@@ -627,42 +657,96 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
     use std::io::ErrorKind;
     const RETRY_SLEEP_MS: u64 = 50;
     const MAX_RETRY_MS: u64 = 90_000;
+    // Match LanguageServer.quark's maxSize for UDP chunking
+    const MAX_CHUNK_SIZE: usize = 6000;
+
     let mut attempts = 0usize;
     let max_attempts = (MAX_RETRY_MS / RETRY_SLEEP_MS) as usize;
 
-    loop {
-        match socket.send(message) {
-            Ok(bytes) if bytes == message.len() => return Ok(()),
-            Ok(_) => {
-                return Err(io::Error::new(
-                    ErrorKind::Other,
-                    "partial UDP send (wrote fewer bytes than expected)",
-                ))
-            }
-            Err(err) if err.kind() == ErrorKind::ConnectionRefused => {
-                if attempts == 0 || attempts % 40 == 0 {
-                    eprintln!(
-                        "[sc_launcher] Connection refused sending to sclang (attempt {}): {err}",
-                        attempts + 1
-                    );
-                }
-                if attempts >= max_attempts {
+    // If message fits in one packet, send directly
+    if message.len() <= MAX_CHUNK_SIZE {
+        loop {
+            match socket.send(message) {
+                Ok(bytes) if bytes == message.len() => return Ok(()),
+                Ok(_) => {
                     return Err(io::Error::new(
-                        ErrorKind::ConnectionRefused,
-                        format!(
-                            "connection refused after {} retries (~{}s): {err}",
-                            attempts + 1,
-                            MAX_RETRY_MS / 1000
-                        ),
-                    ));
+                        ErrorKind::Other,
+                        "partial UDP send (wrote fewer bytes than expected)",
+                    ))
                 }
-                std::thread::sleep(Duration::from_millis(RETRY_SLEEP_MS));
-                attempts += 1;
-                continue;
+                Err(err) if err.kind() == ErrorKind::ConnectionRefused => {
+                    if attempts == 0 || attempts % 40 == 0 {
+                        eprintln!(
+                            "[sc_launcher] Connection refused sending to sclang (attempt {}): {err}",
+                            attempts + 1
+                        );
+                    }
+                    if attempts >= max_attempts {
+                        return Err(io::Error::new(
+                            ErrorKind::ConnectionRefused,
+                            format!(
+                                "connection refused after {} retries (~{}s): {err}",
+                                attempts + 1,
+                                MAX_RETRY_MS / 1000
+                            ),
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(RETRY_SLEEP_MS));
+                    attempts += 1;
+                    continue;
+                }
+                Err(err) => return Err(err),
             }
-            Err(err) => return Err(err),
         }
     }
+
+    // Large message: chunk it like LanguageServer.quark does
+    eprintln!(
+        "[sc_launcher] chunking large message ({} bytes) into {} chunks",
+        message.len(),
+        (message.len() + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE
+    );
+
+    let mut offset = 0;
+    while offset < message.len() {
+        let end = (offset + MAX_CHUNK_SIZE).min(message.len());
+        let chunk = &message[offset..end];
+
+        loop {
+            match socket.send(chunk) {
+                Ok(bytes) if bytes == chunk.len() => break,
+                Ok(_) => {
+                    return Err(io::Error::new(
+                        ErrorKind::Other,
+                        "partial UDP send on chunk",
+                    ))
+                }
+                Err(err) if err.kind() == ErrorKind::ConnectionRefused => {
+                    if attempts == 0 || attempts % 40 == 0 {
+                        eprintln!(
+                            "[sc_launcher] Connection refused sending chunk (attempt {}): {err}",
+                            attempts + 1
+                        );
+                    }
+                    if attempts >= max_attempts {
+                        return Err(io::Error::new(
+                            ErrorKind::ConnectionRefused,
+                            format!("connection refused after {} retries: {err}", attempts + 1),
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(RETRY_SLEEP_MS));
+                    attempts += 1;
+                    continue;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        offset = end;
+        // Small delay between chunks to avoid overwhelming the receiver
+        std::thread::sleep(Duration::from_micros(100));
+    }
+
+    Ok(())
 }
 
 fn read_lsp_message<R: BufRead>(reader: &mut R) -> io::Result<Option<Vec<u8>>> {
