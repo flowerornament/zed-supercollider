@@ -452,6 +452,7 @@ where
                             "[LANGUAGESERVER.QUARK] Expecting",
                             "[LANGUAGESERVER.QUARK] Found method provider:",
                             "[LANGUAGESERVER.QUARK] Handling:",
+                            "[LANGUAGESERVER.QUARK] Checking for client capability",
                             "[LANGUAGESERVER.QUARK] Responding with:",
                             "[LANGUAGESERVER.QUARK] Creating LSP document",
                             "[LANGUAGESERVER.QUARK] Handling a follow-up",
@@ -535,14 +536,33 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
                 },
                 "completionProvider": {
                     "triggerCharacters": [".", "(", "~"],
-                    "resolveProvider": false
+                    "resolveProvider": false,
+                    "completionItem": {
+                        "labelDetailsSupport": true
+                    }
+                },
+                "signatureHelpProvider": {
+                    "triggerCharacters": ["("],
+                    "retriggerCharacters": [","]
                 },
                 "hoverProvider": true,
                 "definitionProvider": true,
                 "declarationProvider": true,
                 "implementationProvider": true,
                 "referencesProvider": true,
+                "selectionRangeProvider": {},
+                "foldingRangeProvider": {},
+                "documentSymbolProvider": {},
                 "codeLensProvider": {},
+                "codeActionProvider": {
+                    "codeActionKinds": ["source"]
+                },
+                "documentOnTypeFormattingProvider": {
+                    "firstTriggerCharacter": "\n",
+                    "moreTriggerCharacter": [")", "}", "|", ";"]
+                },
+                "workspaceSymbolProvider": {},
+                "serverStatus": {},
                 "executeCommandProvider": {
                     "commands": [
                         "supercollider.eval",

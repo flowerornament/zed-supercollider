@@ -9,12 +9,20 @@ Zed extension for SuperCollider with LSP support and HTTP-based code evaluation.
 
 ## Current State
 
-**Status (2026-01-07, latest):** Hover works with class doc block. Find References fallback fixed for symbols like `SinOscFB`; built-ins like `MouseX`/`.postln` still behave oddly and need follow-up. Outline still empty (Zed never sends `textDocument/documentSymbol`). Completion/eval/server-control OK. Current reference errors seen in logs were “Non Boolean in test” coming from the references provider; repo version has a fix, but the installed quark must match it.
+**Status (2026-01-07, latest):** Hover works with class doc block. Find References fallback fixed for symbols like `SinOscFB`; built-ins like `MouseX`/`.postln` still behave oddly and need follow-up. Outline still empty (Zed never sends `textDocument/documentSymbol`). Completion/eval/server-control OK. Reference path is running the vendored quark; “Non Boolean in test” still shows in logs and needs a provider hardening pass.
 
 **Working:** go-to-definition, hover, completion, eval, server control.
 **Partial:** references (ok for SinOscFB; built-ins need doc/fallback tuning).
 **Missing:** outline (no `textDocument/documentSymbol` from Zed); signature help unverified.
 **See:** `.ai/improvements.md` for prioritized enhancement backlog.
+
+## Plan (from original PLAN.md) – quick status
+
+- **M1 Language Skeleton:** Done. Grammar + queries + basic editor integration; outline query exists but client doesn’t send `documentSymbol`.
+- **M2 LSP Bootstrap:** Mostly done. Launcher + LSP wiring + definition/hover/completion working; references mostly OK but built-ins need cleanup; ensure vendored quark is loaded.
+- **M3 Eval & Post:** Eval and server-control commands work over LSP/HTTP; post via logMessage.
+- **M4 Help & Docs:** Hover shows short doc; full “open help” buffer not implemented.
+- **M5 Snippets/Polish:** Some snippets/keymaps/docs exist; migration/troubleshooting polish outstanding.
 
 ## Quick File Map
 

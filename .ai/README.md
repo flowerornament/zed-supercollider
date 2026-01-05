@@ -1,24 +1,22 @@
 # AI Agent Documentation
 
-This directory contains documentation optimized for AI agents (Claude Code, Cursor, etc.)
+Documentation optimized for AI agents.
 
 ## Start Here
 
-**Read `context.md` first** - it's the primary entry point with:
-- Project overview and current state
-- What works, what's broken, what's next
-- Critical anti-patterns to avoid
-- Quick file map and build commands
-- Links to detailed documentation
+Read `context.md` first - primary entry point with project overview, current state, anti-patterns, and quick reference.
 
 ## Directory Structure
 
 ```
 .ai/
   README.md                    # This file
+  context.md                   # PRIMARY - current state and quick reference
   architecture.md              # System design deep dive
   conventions.md               # Code patterns and anti-patterns
   commands.md                  # All build/test/debug commands
+  improvements.md              # Prioritized enhancement backlog
+  improvements-detailed.md     # Detailed implementation examples (reference)
 
   decisions/                   # Architectural Decision Records (ADRs)
     001-http-not-lsp.md        # Why HTTP instead of LSP executeCommand
@@ -31,107 +29,40 @@ This directory contains documentation optimized for AI agents (Claude Code, Curs
     debug-lsp-issue.md         # How to diagnose LSP problems
 ```
 
-## Other Important Files
-
-- **`.ai/context.md`** - PRIMARY CONTEXT (start here)
-- **`/IMPROVEMENTS.md`** - 28+ prioritized enhancement ideas
-
 ## What's in Each File
 
-### context.md (7KB)
-- Current state and next tasks
-- Critical anti-patterns with evidence
-- Quick reference for common operations
-- Links to all other docs
+**context.md** - Current state, anti-patterns, quick reference
 
-### architecture.md (18KB)
-- System diagram and data flows
-- Component responsibilities
-- Design decisions and rationale
-- Extension points for adding features
-- Performance characteristics
-- Failure modes and debugging
+**architecture.md** - System design, data flows, component responsibilities
 
-### conventions.md (14KB)
-- SuperCollider code patterns
-- Zed extension patterns
-- Launcher patterns
-- Testing patterns
-- Anti-patterns with evidence of why they fail
-- File organization guidelines
+**conventions.md** - Code patterns and anti-patterns
 
-### commands.md (11KB)
-- Build commands (extension vs launcher)
-- Test commands
-- Debug commands
-- Log monitoring
-- Verification procedures
-- Troubleshooting steps
+**commands.md** - Build, test, debug commands
 
-### decisions/ (ADRs)
-Architectural Decision Records explaining:
-- What problem was being solved
-- What options were considered
-- Why we chose what we chose
-- What the consequences are
-- Evidence that it works
+**improvements.md** - Enhancement backlog
 
-**Critical for avoiding re-litigating past decisions.**
+**decisions/** - Architectural Decision Records (ADRs) documenting key decisions and their rationale
 
-### research/ (Investigation Logs)
-Dated research documents showing:
-- What problem was investigated
-- How the solution was found
-- Evidence before/after
-- Learnings from the process
+**research/** - Investigation logs showing how problems were solved
 
-**Useful for understanding why things are the way they are.**
-
-### prompts/ (Task Templates)
-Step-by-step guides for common tasks:
-- Debugging specific issues
-- Adding new features
-- Testing procedures
-
-**Follow these when you need to perform similar tasks.**
+**prompts/** - Step-by-step guides for common tasks
 
 ## Usage Principles
 
-1. **Always read context.md first** - it has the current context
-2. **Check anti-patterns before coding** - avoid repeating mistakes
-3. **Reference ADRs when making architectural decisions** - understand constraints
-4. **Use commands.md for verification** - concrete evidence features work
-5. **Create new research docs for investigations** - document findings for future
-6. **Keep docs fresh as you go** - update `context.md` when state changes, add ADRs for decisions, add research logs for investigations
-7. **Git hygiene** - check `git status` before/after, don’t revert user changes, avoid destructive commands, don’t amend existing commits unless asked; keep changes focused to the task
-
-## What Was Removed
-
-Old docs/ directory contained user-facing documentation:
-- USAGE.md - User workflow tutorials
-- SETTINGS.md - User configuration guides
-- TROUBLESHOOTING.md - User troubleshooting
-- AGENTS.md, CONTRIBUTING.md - Developer guides
-- LOG.md - Historical timeline
-- PLAN.md - Implementation plan with completed milestones
-
-**Why removed:** AI agents need technical context and current state, not user tutorials or historical timelines. All essential information migrated to .ai/ structure.
+1. Read context.md first
+2. Check anti-patterns before coding
+3. Reference ADRs when making architectural decisions
+4. Use commands.md for verification
+5. Document investigations in research/
+6. Keep docs fresh as you work
+7. Follow git hygiene
 
 ## Adding New Documentation
 
-**Research findings:**
-- Create `.ai/research/YYYY-MM-DD-topic.md`
-- Include problem, investigation process, solution, evidence
+**Research findings:** Create `.ai/research/YYYY-MM-DD-topic.md` with problem, solution, evidence
 
-**New architectural decisions:**
-- Create `.ai/decisions/NNN-topic.md`
-- Use ADR format (context, options, decision, consequences)
+**Architectural decisions:** Create `.ai/decisions/NNN-topic.md` using ADR format
 
-**New task templates:**
-- Create `.ai/prompts/task-name.md`
-- Include step-by-step procedure with commands
+**Task templates:** Create `.ai/prompts/task-name.md` with step-by-step procedure
 
-**Update context.md:**
-- When current state changes
-- When new critical anti-patterns discovered
-- When major features added/removed
+**Update context.md** when state changes or new anti-patterns discovered
