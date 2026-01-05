@@ -9,13 +9,18 @@ fn dev_launcher_candidate(worktree: &zed::Worktree) -> Option<String> {
     let root = worktree.root_path();
     let debug = format!("{}/server/launcher/target/debug/sc_launcher", root);
     let release = format!("{}/server/launcher/target/release/sc_launcher", root);
-    // Try debug first, then release; we can't stat here, so return None to avoid
-    // misleading Zed if neither likely exists.
-    // Comment these back in if you want aggressive dev fallback:
-    // return Some(debug);
-    // return Some(release);
-    let _ = (debug, release);
-    None
+    // For development: use local build if available
+    // Prefer debug build for latest fixes, fall back to release
+    // Use read_text_file as a file-exists check (WASM doesn't have std::path::Path::exists)
+    let debug_rel = "server/launcher/target/debug/sc_launcher";
+    let release_rel = "server/launcher/target/release/sc_launcher";
+    if worktree.read_text_file(debug_rel).is_ok() {
+        Some(debug)
+    } else if worktree.read_text_file(release_rel).is_ok() {
+        Some(release)
+    } else {
+        None
+    }
 }
 
 fn is_supercollider_server(id: &zed::LanguageServerId) -> bool {
