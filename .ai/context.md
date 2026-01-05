@@ -99,7 +99,7 @@ Zed extension API cannot invoke `workspace/executeCommand` (Issue #13756). Use H
 - Use vendored quark for edits; do not overwrite user-installed quark without consent.
 - Clean logs if testing locally: remove `/tmp/sc_launcher_stdin.log` and `/tmp/sclang_post.log`; restart launcher/sclang as needed.
 - Keep docs in sync: when state changes, update `.ai/tasks/2026-01-05-execution-plan.md`, this context, and add research notes as needed; follow existing doc structure.
-- Git hygiene: make small, focused commits (code + related doc updates together), avoid force pushes/reverts of user changes, and mirror the existing concise style (e.g., `fix(extension): ...`, `docs: ...`). Commit when you land a coherent step; keep working tree clean between steps.
+- Git hygiene: make small, focused commits (code + related doc updates together), avoid force pushes/reverts of user changes, and mirror the existing concise style (e.g., `fix(extension): ...`, `docs: ...`). Commit when you land a coherent step; keep working tree clean between steps. Include submodule bumps when you change vendored quark files: commit inside `server/quark/LanguageServer.quark` first, then update the parent repo to point to the new submodule SHA.
 
 ## Essential Patterns (SuperCollider)
 - Initialize classvars in `*initClass`.
