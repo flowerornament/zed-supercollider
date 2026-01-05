@@ -167,11 +167,21 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     }
 
     // Prefer vendored LanguageServer.quark if present (added as a submodule).
-    if let Some(vendor_path) = find_vendored_quark_path() {
-        eprintln!(
-            "[sc_launcher] including vendored LanguageServer.quark at {}",
-            vendor_path
-        );
+    // Prefer vendored LanguageServer.quark if present (added as a submodule).
+    // Also try the current working directory (helps when launched directly from repo root).
+    let vendored_path = find_vendored_quark_path().or_else(|| {
+        std::env::current_dir().ok().and_then(|cwd| {
+            let candidate = cwd.join("server/quark/LanguageServer.quark");
+            if candidate.exists() {
+                Some(candidate.display().to_string())
+            } else {
+                None
+            }
+        })
+    });
+
+    if let Some(vendor_path) = vendored_path {
+        eprintln!("[sc_launcher] including vendored LanguageServer.quark at {}", vendor_path);
         command.arg("--include-path").arg(&vendor_path);
 
         for installed in installed_quark_paths() {
@@ -360,7 +370,10 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
 fn find_vendored_quark_path() -> Option<String> {
     // sc_launcher typically lives under <repo>/server/launcher/target/<profile>/sc_launcher
-    // Walk up to the repo root and check server/quark/LanguageServer.quark
+    // Walk up to the repo root and check server/quark/LanguageServer.quark.
+    // Also check the current working directory (useful when launched directly from the repo).
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+
     if let Ok(mut exe) = std::env::current_exe() {
         // ascend: .../server/launcher/target/debug/sc_launcher -> .../server/launcher/target/debug
         exe.pop();
@@ -374,10 +387,27 @@ fn find_vendored_quark_path() -> Option<String> {
         exe.pop();
         let mut candidate = exe.clone();
         candidate.push("server/quark/LanguageServer.quark");
+        candidates.push(candidate);
+    }
+
+    // Check CWD as a fallback (helpful in dev runs where current_exe path is unexpected).
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut candidate = cwd.clone();
+        candidate.push("server/quark/LanguageServer.quark");
+        candidates.push(candidate);
+    }
+
+    for candidate in candidates {
         if candidate.exists() {
+            eprintln!(
+                "[sc_launcher] including vendored LanguageServer.quark at {}",
+                candidate.display()
+            );
             return Some(candidate.display().to_string());
         }
     }
+
+    eprintln!("[sc_launcher] no vendored LanguageServer.quark found in expected locations");
     None
 }
 
@@ -540,6 +570,10 @@ fn pump_stdin_to_udp(
     sclang_ready: Arc<AtomicBool>,
     responded_ids: Arc<Mutex<HashSet<String>>>,
 ) -> Result<()> {
+    // Cache the most recent didOpen/didChange to resend after providers register.
+    let cached_did_open: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+    let cached_did_change: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+
     // Log to file for debugging
     let mut debug_log = std::fs::OpenOptions::new()
         .create(true)
@@ -575,6 +609,8 @@ fn pump_stdin_to_udp(
         .context("failed to clone socket for sender")?;
     let sender_ready = sclang_ready.clone();
     let sender_shutdown = shutdown.clone();
+    let resend_did_open = cached_did_open.clone();
+    let resend_did_change = cached_did_change.clone();
     eprintln!("[sc_launcher] pump_stdin_to_udp: about to spawn sender thread");
     let _ = std::io::stderr().flush();
     let sender_thread = thread::Builder::new()
@@ -595,6 +631,20 @@ fn pump_stdin_to_udp(
                         sender_start.elapsed().as_millis(),
                         pending_messages.len()
                     );
+                    // Resend last didOpen/didChange after providers are likely registered.
+                    if let Some(open_msg) = resend_did_open.lock().ok().and_then(|m| m.clone()) {
+                        eprintln!(
+                            "[sc_launcher] re-sending cached textDocument/didOpen after sclang ready"
+                        );
+                        pending_messages.push(open_msg);
+                    }
+                    if let Some(change_msg) = resend_did_change.lock().ok().and_then(|m| m.clone())
+                    {
+                        eprintln!(
+                            "[sc_launcher] re-sending cached textDocument/didChange after sclang ready"
+                        );
+                        pending_messages.push(change_msg);
+                    }
                     if !pending_messages.is_empty() {
                         eprintln!(
                             "[sc_launcher] sclang ready, flushing {} buffered messages at t={}ms",
@@ -704,6 +754,16 @@ fn pump_stdin_to_udp(
                                     message.len(),
                                     if is_buffered { "[BUFFERED]" } else { "" }
                                 );
+                                // Cache last didOpen/didChange so we can replay after sclang is ready.
+                                if method == "textDocument/didOpen" {
+                                    if let Ok(mut slot) = cached_did_open.lock() {
+                                        *slot = Some(message.clone());
+                                    }
+                                } else if method == "textDocument/didChange" {
+                                    if let Ok(mut slot) = cached_did_change.lock() {
+                                        *slot = Some(message.clone());
+                                    }
+                                }
 
                                 // Handle initialize request IMMEDIATELY from the launcher
                                 // We can't wait for sclang because Zed expects a fast response
