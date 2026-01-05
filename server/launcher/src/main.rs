@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, ValueEnum};
 use serde_json::Value as JsonValue;
+use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
@@ -8,7 +9,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::thread;
 use std::time::Duration;
@@ -53,6 +54,36 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    // Write startup log to a file since stderr may be buffered/filtered by Zed
+    let startup_log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/sc_launcher_startup.log");
+    if let Ok(mut f) = startup_log {
+        use std::io::Write;
+        let _ = writeln!(
+            f,
+            "\n======== MAIN STARTED at {:?} ========",
+            std::time::SystemTime::now()
+        );
+        let _ = writeln!(
+            f,
+            "PID={} args={:?}",
+            std::process::id(),
+            std::env::args().collect::<Vec<_>>()
+        );
+        let _ = writeln!(f, "exe={:?}", std::env::current_exe());
+    }
+
+    // Also try stderr
+    eprintln!("[sc_launcher] ======== MAIN STARTED ========");
+    eprintln!(
+        "[sc_launcher] PID={} args={:?}",
+        std::process::id(),
+        std::env::args().collect::<Vec<_>>()
+    );
+    let _ = std::io::stderr().flush();
+
     let args = Args::parse();
 
     let sclang = match &args.sclang_path {
@@ -93,6 +124,13 @@ fn main() -> Result<()> {
 }
 
 fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
+    // Log version at startup to confirm which binary is running
+    eprintln!(
+        "[sc_launcher] v{} starting LSP bridge (pid={})",
+        env!("CARGO_PKG_VERSION"),
+        std::process::id()
+    );
+
     let quark_ok = ensure_quark_present();
     if !quark_ok {
         eprintln!("[sc_launcher] warning: LanguageServer.quark not found in downloaded-quarks; install it via SuperCollider's Quarks GUI or `Quarks.install(\"LanguageServer\");`");
@@ -201,8 +239,15 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     let (stdin_done_tx, stdin_done_rx) = mpsc::channel();
 
+    // Track request IDs that we've already responded to from the launcher.
+    // This prevents sclang's duplicate responses from overwriting ours.
+    // We use a String representation of the JSON id for simpler hashing.
+    let responded_ids: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+
     // Start the stdin bridge IMMEDIATELY to capture the initialize request from Zed.
     // The bridge will buffer messages until sclang is ready.
+    eprintln!("[sc_launcher] about to spawn stdin_bridge thread");
+    let _ = std::io::stderr().flush();
     let sclang_ready = Arc::new(AtomicBool::new(false));
     let stdin_bridge = {
         let udp = udp_sender
@@ -211,10 +256,27 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         let shutdown = shutdown.clone();
         let done_tx = stdin_done_tx.clone();
         let ready_flag = sclang_ready.clone();
-        thread::Builder::new()
+        let responded = responded_ids.clone();
+        eprintln!("[sc_launcher] spawning stdin->udp thread NOW");
+        let _ = std::io::stderr().flush();
+        let handle = thread::Builder::new()
             .name("stdin->udp".into())
-            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag))
-            .context("failed to spawn stdin->udp bridge thread")?
+            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag, responded))
+            .context("failed to spawn stdin->udp bridge thread")?;
+        eprintln!("[sc_launcher] stdin->udp thread spawned successfully");
+        let _ = std::io::stderr().flush();
+        handle
+    };
+
+    // Start the UDP->stdout bridge BEFORE signaling ready, so we don't miss the initialize response
+    let stdout_bridge = {
+        let udp = udp_receiver;
+        let shutdown = shutdown.clone();
+        let responded = responded_ids.clone();
+        thread::Builder::new()
+            .name("udp->stdout".into())
+            .spawn(move || pump_udp_to_stdout(udp, shutdown, responded))
+            .context("failed to spawn udp->stdout bridge thread")?
     };
 
     // Wait for sclang to report LSP READY, then signal the stdin bridge
@@ -238,15 +300,6 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         waited_ms += 50;
     }
     let mut stdin_closed = false;
-
-    let stdout_bridge = {
-        let udp = udp_receiver;
-        let shutdown = shutdown.clone();
-        thread::Builder::new()
-            .name("udp->stdout".into())
-            .spawn(move || pump_udp_to_stdout(udp, shutdown))
-            .context("failed to spawn udp->stdout bridge thread")?
-    };
 
     // Start HTTP server for eval requests
     let http_bridge = {
@@ -437,61 +490,265 @@ fn allocate_udp_ports() -> Result<Ports> {
     })
 }
 
+/// Create an LSP initialize response with server capabilities.
+/// This is sent immediately by the launcher so Zed doesn't timeout waiting for sclang.
+fn create_initialize_response(id: JsonValue) -> JsonValue {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "capabilities": {
+                "textDocumentSync": {
+                    "openClose": true,
+                    "change": 2,  // Incremental
+                    "save": true
+                },
+                "completionProvider": {
+                    "triggerCharacters": [".", "(", "~"],
+                    "resolveProvider": false
+                },
+                "hoverProvider": true,
+                "definitionProvider": true,
+                "declarationProvider": true,
+                "implementationProvider": true,
+                "referencesProvider": true,
+                "codeLensProvider": {},
+                "executeCommandProvider": {
+                    "commands": [
+                        "supercollider.eval",
+                        "supercollider.evaluateSelection",
+                        "supercollider.internal.bootServer",
+                        "supercollider.internal.rebootServer",
+                        "supercollider.internal.quitServer",
+                        "supercollider.internal.recompile",
+                        "supercollider.internal.cmdPeriod"
+                    ]
+                }
+            },
+            "serverInfo": {
+                "name": "sclang:LSPConnection",
+                "version": "0.1"
+            }
+        }
+    })
+}
+
 fn pump_stdin_to_udp(
     socket: UdpSocket,
     shutdown: Arc<AtomicBool>,
     done_tx: mpsc::Sender<()>,
     sclang_ready: Arc<AtomicBool>,
+    responded_ids: Arc<Mutex<HashSet<String>>>,
 ) -> Result<()> {
+    // Log to file for debugging
+    let mut debug_log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/sc_launcher_stdin.log")
+        .ok();
+    if let Some(ref mut f) = debug_log {
+        use std::io::Write;
+        let _ = writeln!(
+            f,
+            "\n=== pump_stdin_to_udp ENTERED at {:?} ===",
+            std::time::SystemTime::now()
+        );
+    }
+
+    eprintln!("[sc_launcher] pump_stdin_to_udp: ENTERED FUNCTION");
+    let _ = std::io::stderr().flush();
+
     let stdin = io::stdin();
+    eprintln!("[sc_launcher] pump_stdin_to_udp: got stdin handle");
+    let _ = std::io::stderr().flush();
+
     let mut reader = BufReader::new(stdin.lock());
+    eprintln!("[sc_launcher] pump_stdin_to_udp: created BufReader with stdin lock");
+    let _ = std::io::stderr().flush();
 
-    // Buffer messages until sclang is ready
-    let mut pending_messages: Vec<Vec<u8>> = Vec::new();
-    let mut ready_signaled = false;
+    // Use a channel to queue messages for sending (allows separate flush thread)
+    let (msg_tx, msg_rx) = mpsc::channel::<Vec<u8>>();
 
-    while !shutdown.load(Ordering::SeqCst) {
-        // Check if sclang became ready and flush buffered messages
-        if !ready_signaled && sclang_ready.load(Ordering::SeqCst) {
-            ready_signaled = true;
-            if !pending_messages.is_empty() {
-                eprintln!(
-                    "[sc_launcher] sclang ready, flushing {} buffered messages",
-                    pending_messages.len()
-                );
-                for msg in pending_messages.drain(..) {
-                    if let Err(err) = send_with_retry(&socket, &msg) {
-                        eprintln!("[sc_launcher] failed to send buffered UDP message: {err}");
+    // Spawn a sender thread that buffers until sclang is ready, then sends
+    let sender_socket = socket
+        .try_clone()
+        .context("failed to clone socket for sender")?;
+    let sender_ready = sclang_ready.clone();
+    let sender_shutdown = shutdown.clone();
+    eprintln!("[sc_launcher] pump_stdin_to_udp: about to spawn sender thread");
+    let _ = std::io::stderr().flush();
+    let sender_thread = thread::Builder::new()
+        .name("stdin-sender".into())
+        .spawn(move || {
+            let sender_start = std::time::Instant::now();
+            eprintln!("[sc_launcher] stdin-sender thread started at t=0ms");
+            let _ = std::io::stderr().flush();
+            let mut pending_messages: Vec<Vec<u8>> = Vec::new();
+            let mut ready_signaled = false;
+
+            loop {
+                // Check for ready signal
+                if !ready_signaled && sender_ready.load(Ordering::SeqCst) {
+                    ready_signaled = true;
+                    eprintln!(
+                        "[sc_launcher] sender thread: sclang ready at t={}ms, {} messages buffered",
+                        sender_start.elapsed().as_millis(),
+                        pending_messages.len()
+                    );
+                    if !pending_messages.is_empty() {
+                        eprintln!(
+                            "[sc_launcher] sclang ready, flushing {} buffered messages at t={}ms",
+                            pending_messages.len(),
+                            sender_start.elapsed().as_millis()
+                        );
+                        for msg in pending_messages.drain(..) {
+                            if let Err(err) = send_with_retry(&sender_socket, &msg) {
+                                eprintln!(
+                                    "[sc_launcher] failed to send buffered UDP message: {err}"
+                                );
+                            }
+                        }
+                        eprintln!(
+                            "[sc_launcher] finished flushing buffered messages at t={}ms",
+                            sender_start.elapsed().as_millis()
+                        );
+                    } else {
+                        eprintln!("[sc_launcher] sclang ready, no buffered messages to flush");
                     }
                 }
-            }
-        }
 
+                // Try to receive a message (with timeout to allow checking ready flag)
+                match msg_rx.recv_timeout(Duration::from_millis(50)) {
+                    Ok(message) => {
+                        if ready_signaled {
+                            if let Err(err) = send_with_retry(&sender_socket, &message) {
+                                eprintln!("[sc_launcher] failed to send UDP message: {err}");
+                            }
+                        } else {
+                            pending_messages.push(message);
+                        }
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        // Continue checking ready flag
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        // Reader thread closed, flush any remaining and exit
+                        if !pending_messages.is_empty() && ready_signaled {
+                            for msg in pending_messages.drain(..) {
+                                let _ = send_with_retry(&sender_socket, &msg);
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                if sender_shutdown.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+        })?;
+
+    eprintln!("[sc_launcher] stdin reader: starting main loop");
+    let _ = std::io::stderr().flush();
+
+    // File-based logging for stdin messages
+    let mut stdin_log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/sc_launcher_stdin.log")
+        .ok();
+    if let Some(ref mut f) = stdin_log {
+        use std::io::Write;
+        let _ = writeln!(
+            f,
+            "stdin reader: starting main loop at {:?}",
+            std::time::SystemTime::now()
+        );
+    }
+    let mut msg_count = 0u64;
+
+    // Main loop: read from stdin and queue messages to sender thread
+    while !shutdown.load(Ordering::SeqCst) {
         match read_lsp_message(&mut reader) {
             Ok(Some(message)) => {
-                // Log incoming LSP method for debugging
+                msg_count += 1;
+                eprintln!(
+                    "[sc_launcher] stdin reader: got message {} bytes",
+                    message.len()
+                );
+                // Log to file
+                if let Some(ref mut f) = stdin_log {
+                    use std::io::Write;
+                    let preview = String::from_utf8_lossy(&message[..message.len().min(500)]);
+                    let _ = writeln!(
+                        f,
+                        "MSG#{} ({} bytes): {}",
+                        msg_count,
+                        message.len(),
+                        preview
+                    );
+                }
+                // Log incoming LSP method for debugging and handle initialize specially
+                let is_buffered = !sclang_ready.load(Ordering::SeqCst);
+                let should_forward = true;
+
                 if let Ok(body_str) = std::str::from_utf8(&message) {
                     if let Some(body_start) = body_str.find("\r\n\r\n") {
                         let body = &body_str[body_start + 4..];
                         if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
                             if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
                                 eprintln!(
-                                    "[sc_launcher] << LSP request: {} (id={:?}){}",
+                                    "[sc_launcher] << LSP request: {} (id={:?}) size={} {}",
                                     method,
                                     json.get("id"),
-                                    if !ready_signaled { " [BUFFERED]" } else { "" }
+                                    message.len(),
+                                    if is_buffered { "[BUFFERED]" } else { "" }
                                 );
 
-                                // Log full initialize request to see client capabilities
+                                // Handle initialize request IMMEDIATELY from the launcher
+                                // We can't wait for sclang because Zed expects a fast response
                                 if method == "initialize" {
-                                    if let Some(params) = json.get("params") {
-                                        if let Some(caps) = params.get("capabilities") {
-                                            eprintln!(
-                                                "[sc_launcher] CLIENT CAPABILITIES: {}",
-                                                serde_json::to_string_pretty(caps)
-                                                    .unwrap_or_default()
+                                    if let Some(id) = json.get("id") {
+                                        eprintln!("[sc_launcher] INTERCEPTING initialize request - responding immediately");
+                                        let response = create_initialize_response(id.clone());
+                                        let response_json =
+                                            serde_json::to_string(&response).unwrap();
+                                        let response_msg = format!(
+                                            "Content-Length: {}\r\n\r\n{}",
+                                            response_json.len(),
+                                            response_json
+                                        );
+
+                                        // Write directly to stdout
+                                        let mut stdout = io::stdout();
+                                        if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
+                                            eprintln!("[sc_launcher] failed to write initialize response: {}", e);
+                                        }
+                                        if let Err(e) = stdout.flush() {
+                                            eprintln!("[sc_launcher] failed to flush initialize response: {}", e);
+                                        }
+                                        eprintln!("[sc_launcher] sent initialize response to Zed");
+
+                                        // Log to file
+                                        if let Some(ref mut f) = stdin_log {
+                                            use std::io::Write;
+                                            let _ = writeln!(
+                                                f,
+                                                ">>> RESPONDED TO INITIALIZE: {}",
+                                                response_json
                                             );
                                         }
+
+                                        // Record that we've already responded to this request ID
+                                        // so we can suppress sclang's duplicate response
+                                        let id_str = id.to_string();
+                                        if let Ok(mut set) = responded_ids.lock() {
+                                            set.insert(id_str.clone());
+                                            eprintln!("[sc_launcher] recorded responded id={} for suppression", id_str);
+                                        }
+
+                                        // Still forward to sclang so it can set up its state
+                                        // but we've already responded to Zed
                                     }
                                 }
                             }
@@ -499,15 +756,12 @@ fn pump_stdin_to_udp(
                     }
                 }
 
-                // If sclang isn't ready yet, buffer the message; otherwise send immediately
-                if ready_signaled {
-                    if let Err(err) = send_with_retry(&socket, &message) {
-                        eprintln!(
-                            "[sc_launcher] failed to send UDP message to sclang after retries: {err}"
-                        );
+                // Queue message for sender thread (forward to sclang)
+                if should_forward {
+                    if msg_tx.send(message).is_err() {
+                        eprintln!("[sc_launcher] sender thread closed unexpectedly");
+                        break;
                     }
-                } else {
-                    pending_messages.push(message);
                 }
             }
             Ok(None) => {
@@ -523,11 +777,26 @@ fn pump_stdin_to_udp(
         }
     }
 
+    // Clean up sender thread
+    drop(msg_tx);
+    let _ = sender_thread.join();
+
     shutdown.store(true, Ordering::SeqCst);
     Ok(())
 }
 
-fn pump_udp_to_stdout(socket: UdpSocket, shutdown: Arc<AtomicBool>) -> Result<()> {
+fn pump_udp_to_stdout(
+    socket: UdpSocket,
+    shutdown: Arc<AtomicBool>,
+    responded_ids: Arc<Mutex<HashSet<String>>>,
+) -> Result<()> {
+    let start = std::time::Instant::now();
+    eprintln!(
+        "[sc_launcher] UDP->stdout bridge STARTED at t=0ms, listening on {:?}",
+        socket.local_addr()
+    );
+    // Force flush stderr immediately so this message appears
+    let _ = std::io::stderr().flush();
     let mut dgram_buf = vec![0u8; 64 * 1024];
     let mut stdout = io::stdout();
 
@@ -572,12 +841,20 @@ fn pump_udp_to_stdout(socket: UdpSocket, shutdown: Arc<AtomicBool>) -> Result<()
         }
     }
 
+    let mut total_packets = 0u64;
     while !shutdown.load(Ordering::SeqCst) {
         match socket.recv(&mut dgram_buf) {
             Ok(size) => {
                 if size == 0 {
                     continue;
                 }
+                total_packets += 1;
+                eprintln!(
+                    "[sc_launcher] UDP packet #{} received: {} bytes at t={}ms",
+                    total_packets,
+                    size,
+                    start.elapsed().as_millis()
+                );
                 acc.extend_from_slice(&dgram_buf[..size]);
 
                 // Process as many complete messages as are buffered.
@@ -626,6 +903,29 @@ fn pump_udp_to_stdout(socket: UdpSocket, shutdown: Arc<AtomicBool>) -> Result<()
                             );
                         }
 
+                        // Check if this is a response to a request we've already handled
+                        // (e.g., initialize response from sclang when we already responded)
+                        let mut should_suppress = false;
+                        if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
+                            if let Some(id) = json.get("id") {
+                                let id_str = id.to_string();
+                                if let Ok(set) = responded_ids.lock() {
+                                    if set.contains(&id_str) {
+                                        should_suppress = true;
+                                        eprintln!(
+                                            "[sc_launcher] SUPPRESSING duplicate response for id={} (already responded from launcher)",
+                                            id_str
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        if should_suppress {
+                            // Skip writing this response to stdout
+                            continue 'outer;
+                        }
+
                         // Write exactly one LSP message to stdout, potentially patched.
                         let header = format!("Content-Length: {}\r\n\r\n", body.len());
                         if let Err(err) = stdout.write_all(header.as_bytes()) {
@@ -642,24 +942,48 @@ fn pump_udp_to_stdout(socket: UdpSocket, shutdown: Arc<AtomicBool>) -> Result<()
                         }
                         let preview = String::from_utf8_lossy(&body[..body.len().min(200)]);
                         eprintln!(
-                            "[sc_launcher] >> {} bytes to stdout: {}",
+                            "[sc_launcher] >> {} bytes to stdout (first 200): {}",
                             body.len(),
                             preview
                         );
+                        // Extra: log if this looks like an initialize response (has capabilities)
+                        if body.len() > 50 {
+                            let body_str = String::from_utf8_lossy(&body);
+                            if body_str.contains("capabilities") {
+                                eprintln!(
+                                    "[sc_launcher] !!! CAPABILITIES DETECTED in response at t={}ms !!!",
+                                    start.elapsed().as_millis()
+                                );
+                                eprintln!("[sc_launcher] FULL RESPONSE: {}", body_str);
+                            }
+                        }
 
                         // Log full initialize response for debugging capabilities
                         if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
-                            if json
-                                .get("result")
-                                .and_then(|r| r.get("capabilities"))
-                                .is_some()
-                            {
+                            // Check for capabilities in result (initialize response)
+                            if let Some(result) = json.get("result") {
+                                if result.get("capabilities").is_some() {
+                                    eprintln!(
+                                        "[sc_launcher] *** SERVER CAPABILITIES ***:\n{}",
+                                        serde_json::to_string_pretty(
+                                            result.get("capabilities").unwrap()
+                                        )
+                                        .unwrap_or_default()
+                                    );
+                                }
+                            }
+                            // Log all response ids for debugging
+                            if let Some(id) = json.get("id") {
                                 eprintln!(
-                                    "[sc_launcher] SERVER CAPABILITIES: {}",
-                                    serde_json::to_string_pretty(
-                                        &json.get("result").unwrap().get("capabilities").unwrap()
-                                    )
-                                    .unwrap_or_default()
+                                    "[sc_launcher] >> response id={} type={}",
+                                    id,
+                                    if id.is_i64() {
+                                        "int"
+                                    } else if id.is_string() {
+                                        "str"
+                                    } else {
+                                        "?"
+                                    }
                                 );
                             }
                         }
@@ -695,6 +1019,23 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
 
     let mut attempts = 0usize;
     let max_attempts = (MAX_RETRY_MS / RETRY_SLEEP_MS) as usize;
+
+    // Log what we're sending (extract method if possible)
+    if let Ok(msg_str) = std::str::from_utf8(message) {
+        if let Some(body_start) = msg_str.find("\r\n\r\n") {
+            let body = &msg_str[body_start + 4..];
+            if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
+                if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
+                    eprintln!(
+                        "[sc_launcher] >>> SENDING to sclang: method={} id={:?} size={}",
+                        method,
+                        json.get("id"),
+                        message.len()
+                    );
+                }
+            }
+        }
+    }
 
     // If message fits in one packet, send directly
     if message.len() <= MAX_CHUNK_SIZE {

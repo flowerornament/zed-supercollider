@@ -6,16 +6,12 @@ use zed_extension_api::{
 struct SuperColliderExtension;
 
 fn dev_launcher_candidate(worktree: &zed::Worktree) -> Option<String> {
-    // For development: return local debug build path if we're in the extension's source directory
-    // Check for Cargo.toml to confirm we're in the right directory
+    // For development: return local release build if we're in the extension's source directory
     if worktree.read_text_file("Cargo.toml").is_ok() {
         let root = worktree.root_path();
-        let debug = format!("{}/server/launcher/target/debug/sc_launcher", root);
-        eprintln!(
-            "[supercollider] dev mode: using local launcher at {}",
-            debug
-        );
-        Some(debug)
+        let path = format!("{}/server/launcher/target/release/sc_launcher", root);
+        eprintln!("[supercollider] dev mode: using local launcher at {}", path);
+        Some(path)
     } else {
         None
     }
