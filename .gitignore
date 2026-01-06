@@ -7,7 +7,9 @@ target/
 
 # Zed / local
 .cache/
-.zed/
+.zed/*
+!.zed/README.md
+!.zed/tasks.json
 
 # macOS
 .DS_Store

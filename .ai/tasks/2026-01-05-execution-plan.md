@@ -1,83 +1,57 @@
----
-title: "Execution Plan – Stability, Quality, and Delivery (Unified)"
+title: "Execution Plan – Stability, Quality, and Delivery"
 created: 2026-01-05
-updated: 2026-01-05
+updated: 2026-01-06
 priority: umbrella
 status: active
 owners: [team]
-purpose: "Master roadmap organizing all tasks into P0-P3 priorities for shipping a stable, quality extension"
+purpose: "Single roadmap (P0–P2) to ship a stable, Zed-friendly SuperCollider extension with accurate capabilities and reliable eval/control."
 ---
 
 # Execution Plan – Stability, Quality, and Delivery (Unified)
 
-Single source of truth for finishing the SuperCollider Zed extension with high code quality, consistency, robustness, and maintainability. Merges the best items from `improvements.md`, `improvements-detailed.md`, and prior low-hanging fixes.
+This is the single backlog (P0–P2). Update `updated` + `## Status Log` when you touch anything.
 
 ## Status Log
+- 2026-01-06: Reviewed live code vs docs. Extension still forces `SC_LAUNCHER_DEBUG*` env by default (logs noisy), HTTP `/eval` returns 202 status only, and launcher initialize advertises extra capabilities (signature/folding/selection/workspaceSymbol/codeLens) despite limited support. CORS remains `*`, no HTTP body limits yet.
+- 2026-01-07: Simplified plan and docs; kept P0 list intact.
+- 2026-01-06: Collapsed tasks into this single plan (P0–P2); LSP debugging file marked done; removed redundant task files.
 - 2026-01-05: Status set to active; focus is P0 items before moving to later phases.
 
 ## Goal
-Ship a stable, portable extension that avoids user-facing regressions/noise, aligns advertised capabilities with reality, and lays groundwork for performance and future features.
-
-## How to Use This Plan
-- Work from the highest-priority active file:
-  - P0: `.ai/tasks/2026-01-05-immediate-fixes.md` (detailed P0 checklist)
-  - P1: `.ai/tasks/2026-01-05-short-term-hardening.md` (when ready)
-  - P2: `.ai/tasks/2026-01-05-performance-quality.md` (when ready)
-  - P3: `.ai/tasks/2026-01-05-features-dx.md` (when ready)
-- Debugging notes: `.ai/tasks/2026-01-05-lsp.md` (working session notes)
-- Update the relevant file’s `status`/`updated` front matter and `## Status Log` when you make progress.
-- Keep this umbrella as the quick index; detailed bullets live in the priority files.
+Ship a stable, portable extension whose advertised capabilities match reality, with safe eval/control and quiet defaults.
 
 ## Scope
-- Launcher (`server/launcher/src/main.rs`)
-- Extension entry (`src/lib.rs`)
-- Vendored quark (`server/quark/LanguageServer.quark/...`)
-- Language config and tasks (`languages/SuperCollider/config.toml`, `.zed/tasks.json`, scripts)
-- Docs/CI guardrails
+Launcher (`server/launcher/src/main.rs`), extension (`src/lib.rs`), quark (`server/quark/LanguageServer.quark`), language config/tasks (`languages/SuperCollider`, `.zed/tasks.json`, scripts), docs/CI guardrails.
 
-## P0 – Immediate Fixes (ship first)
-- **Remove custom notification spam:** Drop `serverStatus` capability in `create_initialize_response`; disable/remove `Notifications/ServerStatusNotification.sc`; confirm no remaining senders. Goal: no “unhandled notification supercollider/serverStatus” in Zed logs.
-- **Dev launcher selection:** Only select dev `server/launcher/target/release/sc_launcher` when it exists; log clearly; keep settings/PATH precedence in `language_server_command` and slash command.
-- **Safe startup/shutdown:** Remove global `pkill -9 sclang`; add scoped shutdown (LSP shutdown/exit, wait with timeout, TERM/kill child PID only if needed); ensure stdin close triggers clean exit. Update emergency task to TERM-first or remove.
-- **Capability hygiene:** Advertise only what works (likely drop `documentSymbolProvider`, on-type formatting, `serverStatus`; keep selectionRange/folding/codeLens only if providers return data; formatting toggle respected). Align `DocumentSymbolProvider` skip logic with advertised state.
-- **Probe JSON correctness:** Use `serde_json::json!` + `to_string()` for `--mode probe`; handle quotes/backslashes safely.
-- **Logging defaults:** Minimal by default; add env/flag for verbose file logs; prefer `temp_dir` over hardcoded `/tmp`; avoid duplicate writes unless debug-enabled.
-- **Tasks cleanup:** Inline eval curl (no absolute paths), add HTTP status output, allow configurable port/env, soften kill task (TERM-first, no global nukes), remove/replace `.zed/eval.sh` if unnecessary.
-- **Config guardrails:** Add `scripts/validate-config.sh` to fail on banned keys (`opt_into_language_servers`, `scope_opt_in_language_servers`, etc.) and missing required fields; wire into pre-commit/CI stub.
-- **Error messaging polish:** Actionable guidance when launcher/quark missing; check-setup uses `status.success()`; include sample settings JSON and quark install hints; log when dev binary is absent.
-- **Quark safety:** `LSPDatabase.sc:renderMethodRange` try/finally close; coerce `includeDeclaration` to Bool in `FindReferencesProvider`; gate/remove DEBUG `postln` (Hover/Refs/DocumentSymbol).
-- **Carryover quick wins:** Add `word_characters = ["a-zA-Z0-9_?"]` (if desired); README setup/usage/troubleshooting plus fire-and-forget eval note.
+## P0 – Ship-Blockers
+- Capability hygiene: drop `serverStatus`; advertise only working providers (definition/references/completion/hover/executeCommand).
+- Init/shutdown: clean stdin-close handling; buffer until ready, then flush and shut down without orphaning or global kills.
+- Eval/control transport: enforce UDP-safe size (chunk or 413), surface UDP failures as 4xx/5xx; keep HTTP localhost-only with clear status.
+- Logging: default quiet; opt-in debug logs under TMP; stop forcing debug env vars.
+- Tasks/PIDs: inline curl tasks with status output; track launcher+sclang PIDs or remove any global `pkill` task.
+- Dev launcher selection: settings path > PATH > dev binary (only if built); clear logs when dev binary missing.
+- Packaging/tests/meta: remove committed build artifacts, fix `extension.toml` metadata, add minimal launcher tests + CI stub (`scripts/validate-config.sh` + tests).
 
-## P1 – Short-Term Hardening (after P0)
-- **Graceful shutdown polish:** Flush buffered messages on shutdown; ensure only child sclang is killed; avoid message loss; log shutdown timing.
-- **LSP correctness:** Proper null/empty responses; prefer `LocationLink` for definitions; dedupe initialize responses robustly; handle partial UDP sends gracefully.
-- **Logging/tracing framework:** Replace ad-hoc `eprintln!` with structured logging (`tracing`/`log`), consistent prefixes, gated previews, temp_dir logs.
-- **Provider alignment:** Only advertise capabilities with real behavior; if enabling formatting, wire it; otherwise keep off; reduce stub returns.
-- **Task/HTTP ergonomics:** Document async eval; optional port env var; note CORS/security expectations.
+## P1 – Hardening
+- Flush buffered UDP/LSP responses on shutdown; log phases/timing.
+- Normalize responses (null/empty), prefer `LocationLink`, dedupe initialize responses.
+- Structured logging gated by env; separate user-facing post log from debug logs.
+- Document async eval semantics and loopback/CORS expectations.
 
-## P2 – Performance & Quality
-- **Indexing/cache:** LSPDatabase LRU cache and incremental/index invalidation on recompile; cache common definitions/responses.
-- **Message pipeline:** Batch small UDP messages; centralize magic numbers (timeouts/chunk sizes); adopt type-safe `lsp-types` handling to reduce JSON churn.
-- **Startup optimization:** Measure and reduce fixed sleeps; capture startup timings.
-- **Testing/benchmarks:** Add benchmarks for definition lookup; set and track targets (startup <2s, definition <100ms p95, steady memory <50MB).
+## P2 – Performance/Quality
+- Small LRU cache for defs/refs with invalidation; light hit/miss metrics.
+- Centralize UDP constants; use serde/lsp-types to cut JSON churn.
+- Measure startup and replace sleeps with readiness signals; add tiny benches for navigation latency.
 
-## P3 – Features & DX (when stable)
-- **Progress notifications:** Standard `$ /progress` for indexing.
-- **Signature help and workspace symbols:** Harden parsing; add fuzzy search.
-- **Provider robustness:** Input validation layer for params; consistent logging via `Log()` in quark.
-- **Hot reload (optional):** Dev-only quark reload helper.
-- **Docs/CI:** Architecture/docs polish, config schema, CI pipeline (launcher tests, validate-config, fmt/clippy), release automation, integration tests (ignored if no sclang).
+## Validation checklist
+- Initialize response aligns with capabilities; no `serverStatus`; dev binary selection doesn’t throw ENOENT.
+- Eval/control tasks return real HTTP status; kill task (if kept) targets only tracked PIDs.
+- `scripts/validate-config.sh` + launcher tests pass in CI stub.
+- Shutdown closes stdin, sends LSP shutdown/exit, and leaves no orphaned `sclang`/`sc_launcher`.
+- README/setup match logging defaults and eval semantics.
 
-## Validation Checklist
-- Launcher: `--mode lsp` initialize response matches advertised capabilities; no `serverStatus`; dev binary auto-picked only when present; ENOENT-free on fresh clone. `--mode probe` returns valid JSON with quotes/backslashes.
-- Tasks: Eval works on fresh clone with no path edits; HTTP status visible; kill task is safe and targeted; port configurable.
-- Config: `scripts/validate-config.sh` passes current tree; fails when banned keys added; hook runs in CI/pre-commit.
-- Quark: No FD leaks; references handle `includeDeclaration` safely; debug logs quiet unless enabled.
-- Shutdown: Closing stdin or invoking shutdown cleans child sclang without touching unrelated processes; pending messages flushed.
-- Docs: README updated with setup/usage/troubleshooting and async eval note; language config includes desired `word_characters`.
-
-## Guardrails / Anti-Patterns
-- Keep `languages/SuperCollider/config.toml` minimal; never add `opt_into_language_servers` or `scope_opt_in_language_servers`.
-- Avoid `^` returns in SC dictionary functions; initialize classvars in `*initClass`; handle nil dictionary keys.
+## Guardrails
+- `languages/SuperCollider/config.toml` stays minimal (no `opt_into_language_servers`/`scope_opt_in_language_servers`).
+- SC dict funcs never use `^`; init classvars in `*initClass`; handle nil dict keys.
 - Do not overwrite user-installed quark without consent; test vendored copy first.
-- HTTP eval is fire-and-forget; results appear in Post Window.
+- HTTP eval is fire-and-forget; results land in Post Window/logs, not inline.

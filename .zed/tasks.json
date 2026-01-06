@@ -1,0 +1,102 @@
+[
+  {
+    "label": "SuperCollider: Post Window",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "tail -f \"${SC_TMP_DIR:-${TMPDIR:-/tmp}}/sclang_post.log\""
+    ],
+    "reveal": "always",
+    "use_new_terminal": true,
+    "hide": "never"
+  },
+  {
+    "label": "SuperCollider: Check Setup",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "cd \"${ZED_WORKTREE_ROOT:-$PWD}\" && scripts/check-setup.sh"
+    ],
+    "reveal": "always",
+    "use_new_terminal": true,
+    "hide": "never"
+  },
+  {
+    "label": "SuperCollider: Evaluate",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; CODE=\"${ZED_CUSTOM_code:-${ZED_CUSTOM_CODE:-}}\"; [ -z \"$CODE\" ] && exit 0; printf \"%s\" \"$CODE\" > /tmp/sc_eval_raw.txt; printf \"%s\" \"$CODE\" > /tmp/sc_eval_last.txt; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(printf \"%s\" \"$CODE\" | curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -H \"Content-Type: text/plain\" --data-binary @- \"http://127.0.0.1:${SC_PORT}/eval\"); printf \"HTTP %s\\n\" \"$HTTP\""
+    ],
+    "tags": [
+      "sc-eval"
+    ],
+    "reveal": "never",
+    "hide": "never",
+    "use_new_terminal": false
+  },
+  {
+    "label": "SuperCollider: Evaluate (Manual)",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; CODE=\"${ZED_CUSTOM_code:-${ZED_CUSTOM_CODE:-}}\"; [ -z \"$CODE\" ] && exit 0; printf \"%s\" \"$CODE\" > /tmp/sc_eval_raw.txt; printf \"%s\" \"$CODE\" > /tmp/sc_eval_last.txt; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(printf \"%s\" \"$CODE\" | curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -H \"Content-Type: text/plain\" --data-binary @- \"http://127.0.0.1:${SC_PORT}/eval\"); printf \"HTTP %s\\n\" \"$HTTP\""
+    ],
+    "reveal": "always",
+    "use_new_terminal": true,
+    "hide": "never"
+  },
+  {
+    "label": "SuperCollider: Boot Server",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/boot\"); printf \"HTTP %s\\n\" \"$HTTP\""
+    ],
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false
+  },
+  {
+    "label": "SuperCollider: Stop (CmdPeriod)",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/stop\"); printf \"HTTP %s\\n\" \"$HTTP\""
+    ],
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false
+  },
+  {
+    "label": "SuperCollider: Recompile",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/recompile\"); printf \"HTTP %s\\n\" \"$HTTP\""
+    ],
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false
+  },
+  {
+    "label": "SuperCollider: Quit Server",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/quit\"); printf \"HTTP %s\\n\" \"$HTTP\""
+    ],
+    "reveal": "always",
+    "hide": "never",
+    "use_new_terminal": false
+  },
+  {
+    "label": "SuperCollider: Kill All (Emergency Cleanup)",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "LOG_DIR=${SC_TMP_DIR:-${TMPDIR:-/tmp}}; PID_FILE=\"$LOG_DIR/sc_launcher_pids.json\"; if [ ! -f \"$PID_FILE\" ]; then echo \"No pid file at $PID_FILE; nothing to stop\"; exit 0; fi; PIDS=$(python3 -c 'import json,sys,pathlib; data=json.loads(pathlib.Path(sys.argv[1]).read_text()); print(f\"{data.get(\\\"launcher_pid\\\",\\\"\\\")} {data.get(\\\"sclang_pid\\\",\\\"\\\") }\" )' \"$PID_FILE\" 2>/dev/null || true); set -- $PIDS; LAUNCHER_PID=\"${1:-}\"; SCLANG_PID=\"${2:-}\"; if [ -z \"$LAUNCHER_PID\" ] || [ -z \"$SCLANG_PID\" ]; then echo \"Invalid pid file at $PID_FILE\"; exit 1; fi; if ps -p \"$SCLANG_PID\" >/dev/null 2>&1; then PARENT=$(ps -o ppid= -p \"$SCLANG_PID\" 2>/dev/null | tr -d ' '); if [ \"$PARENT\" != \"$LAUNCHER_PID\" ]; then echo \"sclang pid $SCLANG_PID is not child of launcher $LAUNCHER_PID; skipping sclang\"; SCLANG_PID=\"\"; fi; else SCLANG_PID=\"\"; fi; if [ -n \"$SCLANG_PID\" ]; then kill -TERM \"$SCLANG_PID\" 2>/dev/null || true; sleep 1; kill -KILL \"$SCLANG_PID\" 2>/dev/null || true; fi; if ps -p \"$LAUNCHER_PID\" >/dev/null 2>&1; then kill -TERM \"$LAUNCHER_PID\" 2>/dev/null || true; sleep 1; kill -KILL \"$LAUNCHER_PID\" 2>/dev/null || true; fi; rm -f \"$PID_FILE\" \"$LOG_DIR/sclang_post.log\" \"$LOG_DIR/sc_launcher_stdin.log\"; echo \"Stopped launcher pid ${LAUNCHER_PID:-?} and sclang pid ${SCLANG_PID:-<none>}; cleared logs in $LOG_DIR\""
+    ],
+    "reveal": "always"
+  }
+]

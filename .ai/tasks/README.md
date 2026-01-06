@@ -1,13 +1,13 @@
 ---
 title: "Task Documentation Conventions"
 created: 2026-01-05
-updated: 2026-01-05
-purpose: "Guidelines for YAML front matter and status tracking in task files"
+updated: 2026-01-06
+purpose: "Guidelines for YAML front matter and status tracking in task files (single-plan workflow)"
 ---
 
 # Task Docs Conventions
 
-Each file in `.ai/tasks/` starts with YAML front matter to track status and ownership, followed by a short status log for updates and decisions.
+Each file in `.ai/tasks/` starts with YAML front matter to track status and ownership, followed by a short status log for updates and decisions. We now use a single active plan (`2026-01-05-execution-plan.md`) plus any archived/done notes.
 
 ## Front Matter
 Required keys:

@@ -22,15 +22,16 @@ See `.ai/context.md` for details
         "arguments": ["--mode", "lsp", "--http-port", "57130"]
       }
     }
-  }
+ }
 }
 ```
-4) Optional: set `SC_HTTP_PORT` for task HTTP calls and `SC_TMP_DIR` for log location (defaults to TMPDIR).
+4) Copy `.zed/tasks.json` into your SuperCollider workspace (or merge into an existing `.zed/tasks.json`). The `sc-eval` tag drives the play buttons via HTTP `/eval`, and the file includes Post Window/Stop/Boot/Recompile/Quit/Kill helpers. To copy into the current directory: `scripts/install-tasks.sh`.
+5) Optional: set `SC_HTTP_PORT` for task HTTP calls and `SC_TMP_DIR` for log location (defaults to TMPDIR).
    - For verbose stdout/stderr logging from the launcher, set `SC_LAUNCHER_DEBUG=1` (file logs remain gated by `SC_LAUNCHER_DEBUG_LOGS`).
 
 ## Usage
 
-- Use the play button or `SuperCollider: Evaluate` task for code eval (HTTP, fire-and-forget; results appear in the Post Window).
+- Use the play button (parenthesized or `{}` function blocks) or `SuperCollider: Evaluate` task for code eval (HTTP, fire-and-forget; results appear in the Post Window).
 - Control tasks (`Stop/Boot/Recompile/Quit`) hit `http://127.0.0.1:${SC_HTTP_PORT:-57130}`.
 - Tail the Post Window via the `SuperCollider: Post Window` task (logs in `${SC_TMP_DIR:-${TMPDIR:-/tmp}}`).
 

@@ -1,70 +1,26 @@
----
 title: "LSP Navigation Research"
 created: 2026-01-05
-updated: 2026-01-05
-purpose: "Investigation findings on LSP navigation issues: root cause, solution implementation, and verification"
+updated: 2026-01-07
+purpose: "Short record of why navigation was broken and how it was fixed"
 ---
 
 # LSP Navigation Research
 
-## Problem
+## What broke
+Navigation requests never left Zed; `/tmp/sc_launcher_stdin.log` had no `textDocument/definition` entries.
 
-Go-to-definition and references weren't working. Zed LSP server was running but navigation requests were never sent.
+## Why
+- `languages/SuperCollider/config.toml` used undocumented fields (`opt_into_language_servers`, `scope_opt_in_language_servers`) that stop Zed from sending LSP requests for extension languages.
+- Quark also had nil-handling/race bugs that could crash early in startup.
 
-## Root Cause
+## Fix
+- Strip the undocumented config fields (keep only documented ones).
+- Harden quark: init arrays before use, handle nil dict keys, queue `didOpen`/`didChange` until ready.
 
-Two issues were blocking navigation:
+## Evidence/verification
+- After config fix: `grep -i "definition" /tmp/sc_launcher_stdin.log` shows multiple requests.
+- Hover/definition/references work; outline still absent because client never sends `textDocument/documentSymbol`.
 
-1. **Server bugs:** Uninitialized arrays and race conditions in LanguageServer.quark caused crashes
-2. **Config fields:** `opt_into_language_servers` and `scope_opt_in_language_servers` in config.toml prevented Zed from sending LSP requests
-
-Diagnosis: Log analysis (`grep -i "definition" /tmp/sc_launcher_stdin.log`) showed zero requests from Zed, revealing a client-side configuration issue rather than server bug.
-
-## Solution
-
-### Server Fixes
-Fixed in `server/quark/LanguageServer.quark/`:
-- Initialize arrays before use (LSPDatabase.sc)
-- Handle nil dictionary keys safely
-- Handle didChange/didOpen race conditions (TextDocumentProvider.sc)
-
-### Config Fix
-Removed these fields from `languages/SuperCollider/config.toml`:
-```toml
-opt_into_language_servers = ["supercollider"]
-scope_opt_in_language_servers = ["supercollider"]
-```
-
-These fields work for built-in Zed languages but break extension-provided languages. Minimal config with only documented fields resolved the issue.
-
-## Key Learnings
-
-### Zed Extension System
-- Built-in and extension-provided languages behave differently
-- Extension config should be minimal - only use documented fields from [Zed docs](https://zed.dev/docs/extensions/languages)
-- Reference working extensions: [Erlang](https://github.com/zed-extensions/erlang), [Elixir](https://github.com/zed-extensions/elixir)
-
-### Debugging Approach
-- Log analysis revealed client vs server issue
-- Comparative analysis with working extensions identified config difference
-- Tree-sitter is for syntax highlighting; LSP handles navigation
-
-## Follow-up Work
-
-Additional LSP features implemented after navigation fix:
-- Document rehydration for didOpen/didChange race conditions (2026-01-06)
-- HoverProvider, outline support
-- Additional capability advertisement
-
-**LSP capability testing checklist:**
-- textDocument/definition, textDocument/references (working)
-- textDocument/hover, textDocument/completion
-- textDocument/signatureHelp, textDocument/documentSymbol
-- textDocument/codeLens, workspace/symbol
-- Cross-file navigation, large file handling
-
-See `.ai/tasks/2026-01-05-execution-plan.md` for current enhancement priorities.
-
-## Debugging Commands
-
-See `.ai/commands.md` for complete debugging reference.
+## Takeaways
+- Extension configs behave differently from built-ins—stick to documented fields and compare with known-good extensions (Erlang/Elixir).
+- Always check for absence of requests in logs; missing traffic often means client-side config, not server bugs.

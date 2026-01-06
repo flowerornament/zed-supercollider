@@ -16,6 +16,37 @@ use std::thread;
 use std::time::Duration;
 use tiny_http::{Method, Response, Server};
 
+fn timestamp() -> String {
+    use libc::{localtime_r, strftime, time_t, tm};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Get epoch time for local conversion.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0));
+    let secs = now.as_secs() as time_t;
+    let millis = now.subsec_millis();
+
+    // Convert to local time and format YYYY-MM-DD HH:MM:SS.mmm
+    let mut tm: tm = unsafe { std::mem::zeroed() };
+    unsafe {
+        localtime_r(&secs, &mut tm);
+    }
+
+    let mut buf = [0u8; 32];
+    let fmt = b"%Y-%m-%d %H:%M:%S\0";
+    let len = unsafe {
+        strftime(
+            buf.as_mut_ptr() as *mut i8,
+            buf.len(),
+            fmt.as_ptr() as *const i8,
+            &tm,
+        )
+    };
+    let prefix = std::str::from_utf8(&buf[..len as usize]).unwrap_or("1970-01-01 00:00:00");
+    format!("{}.{}", prefix, format!("{millis:03}"))
+}
+
 /// SuperCollider Language Server launcher
 ///
 /// Responsibilities:
@@ -130,17 +161,18 @@ fn main() -> Result<()> {
             use std::io::Write;
             let _ = writeln!(
                 f,
-                "\n======== MAIN STARTED at {:?} ========",
-                std::time::SystemTime::now()
+                "\n[{}] ======== MAIN STARTED ========",
+                timestamp()
             );
             let _ = writeln!(
                 f,
-                "PID={} args={:?}",
+                "[{}] PID={} args={:?}",
+                timestamp(),
                 std::process::id(),
                 std::env::args().collect::<Vec<_>>()
             );
-            let _ = writeln!(f, "exe={:?}", std::env::current_exe());
-            let _ = writeln!(f, "log_dir={:?}", log_dir());
+            let _ = writeln!(f, "[{}] exe={:?}", timestamp(), std::env::current_exe());
+            let _ = writeln!(f, "[{}] log_dir={:?}", timestamp(), log_dir());
         }
     }
 
@@ -524,44 +556,7 @@ where
                     // Write stdout to post window log file (filter out verbose LSP debug messages)
                     if log_to_file {
                         if let Some(ref mut f) = post_file {
-                            // Skip LSP internal protocol messages - users don't need to see these
-                            let skip_patterns = [
-                                "[LANGUAGESERVER.QUARK] Message received:",
-                                "[LANGUAGESERVER.QUARK] Expecting",
-                                "[LANGUAGESERVER.QUARK] Found method provider:",
-                                "[LANGUAGESERVER.QUARK] Handling:",
-                                "[LANGUAGESERVER.QUARK] Checking for client capability",
-                                "[LANGUAGESERVER.QUARK] Responding with:",
-                                "[LANGUAGESERVER.QUARK] Creating LSP document",
-                                "[LANGUAGESERVER.QUARK] Handling a follow-up",
-                                "[LANGUAGESERVER.QUARK] client options:",
-                                "[LANGUAGESERVER.QUARK] No provider found for method:",
-                                "[LANGUAGESERVER.QUARK] Registering provider:",
-                                "[LANGUAGESERVER.QUARK] Adding server capability",
-                                "[LANGUAGESERVER.QUARK] writing options into key",
-                                "[LANGUAGESERVER.QUARK] Adding provider for method",
-                                "[LANGUAGESERVER.QUARK] Server capabilities are:",
-                                "[LANGUAGESERVER.QUARK] Overwriting provider",
-                                "[LANGUAGESERVER.QUARK] initializing",
-                                "Deferred(",
-                                "{\"jsonrpc\":",
-                                "{\"id\":",
-                                "{\"method\":",
-                                "Dictionary[",
-                                "...etc...",
-                            ];
-
-                            // Also skip lines that are SC data structure continuations (start with whitespace or special patterns)
-                            let is_data_continuation = trimmed.starts_with(' ')
-                                || trimmed.starts_with('\t')
-                                || (trimmed.starts_with('(') && trimmed.contains("->"))
-                                || trimmed.starts_with(", '");
-
-                            let should_skip = skip_patterns.iter().any(|pat| trimmed.contains(pat))
-                                || is_data_continuation;
-                            if !should_skip {
-                                let _ = writeln!(f, "{}", trimmed);
-                            }
+                            let _ = writeln!(f, "[{}] [{label}] {}", timestamp(), trimmed);
                         }
                     }
 
@@ -739,8 +734,8 @@ fn pump_stdin_to_udp(
         use std::io::Write;
         let _ = writeln!(
             f,
-            "\n=== pump_stdin_to_udp ENTERED at {:?} ===",
-            std::time::SystemTime::now()
+            "\n[{}] === pump_stdin_to_udp ENTERED ===",
+            timestamp()
         );
     }
 
@@ -882,8 +877,8 @@ fn pump_stdin_to_udp(
         use std::io::Write;
         let _ = writeln!(
             f,
-            "stdin reader: starting main loop at {:?}",
-            std::time::SystemTime::now()
+            "[{}] stdin reader: starting main loop",
+            timestamp()
         );
     }
     let mut msg_count = 0u64;
@@ -905,7 +900,8 @@ fn pump_stdin_to_udp(
                     let preview = String::from_utf8_lossy(&message[..message.len().min(500)]);
                     let _ = writeln!(
                         f,
-                        "MSG#{} ({} bytes): {}",
+                        "[{}] MSG#{} ({} bytes): {}",
+                        timestamp(),
                         msg_count,
                         message.len(),
                         preview
@@ -971,7 +967,8 @@ fn pump_stdin_to_udp(
                                             use std::io::Write;
                                             let _ = writeln!(
                                                 f,
-                                                ">>> RESPONDED TO INITIALIZE: {}",
+                                                "[{}] >>> RESPONDED TO INITIALIZE: {}",
+                                                timestamp(),
                                                 response_json
                                             );
                                         }

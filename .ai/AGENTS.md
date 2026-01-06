@@ -1,74 +1,36 @@
----
-title: "AI Agent Documentation"
+title: "AI Agent Guide"
 created: 2026-01-05
-updated: 2026-01-05
-purpose: "Directory map and workflow guide for AI agents working on the SuperCollider extension"
+updated: 2026-01-07
+purpose: "Small, consistent entrypoint for AI agents working on the SuperCollider Zed extension"
 ---
 
-# AI Agent Documentation
+# AI Agent Guide
 
-Documentation optimized for AI agents.
+Read this file, then jump to `context.md`. Keep the docs lean; update them when reality changes.
 
-## Start Here
+## Minimal Map
+- `context.md` (start here): purpose, status, anti-patterns, quick workflow.
+- `architecture.md`: one-page mental model of the dual-channel bridge.
+- `conventions.md`: only the rules that keep SC/Rust/Zed code safe.
+- `commands.md`: the few commands that prove things work or fail.
+- `tasks/2026-01-05-execution-plan.md`: single backlog; front matter tracks status.
+- `decisions/`: ADRs that justify the architecture/config choices.
+- `prompts/`: short checklists for debugging or picking work.
+- `research/`: past investigations worth reusing.
+- `code-reviews/`: last notable review findings.
 
-Read `context.md` first - primary entry point with project overview, current state, anti-patterns, and quick reference.
+## Permissions Note
+- Some scripts (e.g., `scripts/check-setup.sh`, `scripts/test-sclang.sh`) need to launch the system sclang at `/Applications/SuperCollider.app/Contents/MacOS/sclang`. In sandboxed runs this can fail with a NEON/processor error. If that happens, rerun with escalated permissions so the script can access the system binary.
 
-## Directory Structure
+## How to Work
+- Read `context.md`, then open the active task in `tasks/`.
+- Obey anti-patterns and conventions; do not reintroduce banned config fields or SC `^` returns.
+- When you change state or learn something new, update the relevant doc (keep it short).
+- Record progress in the task front matter + `## Status Log`.
+- Prefer evidence: link to logs/commands you ran; avoid narrative.
 
-```
-.ai/
-  AGENTS.md                    # This file
-  context.md                   # PRIMARY - current state and quick reference
-  architecture.md              # System design deep dive
-  conventions.md               # Code patterns and anti-patterns
-  commands.md                  # All build/test/debug commands
-  tasks/2026-01-05-execution-plan.md # Consolidated backlog/plan (YAML front matter; see tasks/README.md)
-
-  decisions/                   # Architectural Decision Records (ADRs)
-    001-http-not-lsp.md        # Why HTTP instead of LSP executeCommand
-    002-config-fields.md       # Why minimal config.toml
-
-  research/                    # Investigation findings (dated)
-    2026-01-05-navigation.md   # Navigation fix investigation
-
-  prompts/                     # Reusable task templates
-    debug-lsp-issue.md         # How to diagnose LSP problems
-```
-
-## What's in Each File
-
-**context.md** - Current state, anti-patterns, quick reference
-
-**architecture.md** - System design, data flows, component responsibilities
-
-**conventions.md** - Code patterns and anti-patterns
-
-**commands.md** - Build, test, debug commands
-
-**tasks/2026-01-05-execution-plan.md** - Consolidated backlog/plan
-
-**decisions/** - Architectural Decision Records (ADRs) documenting key decisions and their rationale
-
-**research/** - Investigation logs showing how problems were solved
-
-**prompts/** - Step-by-step guides for common tasks
-
-## Usage Principles
-
-1. Read context.md first
-2. Check anti-patterns before coding
-3. Reference ADRs when making architectural decisions
-4. Use commands.md for verification
-5. Document investigations in research/
-6. Keep docs fresh as you work
-7. Follow git hygiene
-
-## Adding New Documentation
-
-**Research findings:** Create `.ai/research/YYYY-MM-DD-topic.md` with problem, solution, evidence
-
-**Architectural decisions:** Create `.ai/decisions/NNN-topic.md` using ADR format
-
-**Task templates:** Create `.ai/prompts/task-name.md` with step-by-step procedure
-
-**Update context.md** when state changes or new anti-patterns discovered
+## When Adding Docs
+- Keep front matter (`title/date/updated/priority/status/owners/purpose`) and a brief log.
+- Research: `.ai/research/YYYY-MM-DD-topic.md` with problem/decision/evidence.
+- Decisions: `.ai/decisions/NNN-topic.md` with context → decision → consequence.
+- Prompts: only checklists that save time for recurring workflows.
