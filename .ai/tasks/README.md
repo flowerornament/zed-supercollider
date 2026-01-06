@@ -1,3 +1,10 @@
+---
+title: "Task Documentation Conventions"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "Guidelines for YAML front matter and status tracking in task files"
+---
+
 # Task Docs Conventions
 
 Each file in `.ai/tasks/` starts with YAML front matter to track status and ownership, followed by a short status log for updates and decisions.

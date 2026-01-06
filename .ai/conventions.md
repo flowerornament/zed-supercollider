@@ -1,3 +1,10 @@
+---
+title: "Code Conventions & Patterns"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "Coding patterns, anti-patterns, and best practices for SuperCollider, Rust, Zed extensions, and tree-sitter"
+---
+
 # Code Conventions & Patterns
 
 ## SuperCollider Patterns

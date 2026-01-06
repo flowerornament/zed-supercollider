@@ -1,3 +1,10 @@
+---
+title: "SuperCollider Zed Extension Context"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "Quick reference for AI agents: project goals, current state, architecture overview, key files, anti-patterns, and workflow"
+---
+
 # SuperCollider Zed Extension
 
 ## Purpose
@@ -8,7 +15,7 @@ Ship a stable Zed extension for SuperCollider: navigation, hover/completion, and
 - Honor anti-patterns below (config.toml minimal; no `^` returns in SC dicts; do not overwrite user-installed quark).
 - Use vendored quark for changes; never revert user modifications.
 - Task docs now use YAML front matter for status tracking (see `.ai/tasks/README.md`). Update `status`/`updated` and append to the `## Status Log` when making progress.
-- README is user-facing; contributor docs live here in `.ai/` (this file is the entry point; see `.ai/README.md` for the map).
+- README is user-facing; contributor docs live here in `.ai/` (this file is the entry point; see `.ai/AGENTS.md` for the map).
 
 ## Task Workflow (daily use)
 - Pick from highest-priority `status: active` in `.ai/tasks/` (P0→P3) and keep scope tight.
@@ -55,50 +62,11 @@ Ship a stable Zed extension for SuperCollider: navigation, hover/completion, and
 
 ## Critical Anti-Patterns
 
-### DO NOT add these fields to config.toml
+**See `.ai/conventions.md` for complete pattern documentation.** Key reminders:
 
-```toml
-opt_into_language_servers = ["supercollider"]
-scope_opt_in_language_servers = ["supercollider"]
-```
-
-**Why:** These fields work for built-in Zed languages but break extension-provided languages. They prevented Zed from sending LSP definition requests.
-
-**Correct minimal config.toml:**
-```toml
-name = "SuperCollider"
-grammar = "supercollider"
-path_suffixes = ["sc", "scd"]
-line_comments = ["// "]
-tab_size = 4
-hard_tabs = false
-```
-
-Only add documented fields from https://zed.dev/docs/extensions/languages
-
-### DO NOT use ^ (non-local return) in SC dictionaries
-
-```supercollider
-// BAD - returns provider itself
-commands = (
-    'supercollider.eval': { |params|
-        ^("result": params["source"].interpret)
-    }
-);
-
-// GOOD - returns result
-commands = (
-    'supercollider.eval': { |params|
-        ("result": params["source"].interpret)
-    }
-);
-```
-
-**Why:** `^` bypasses `valueArray` return capture, returns provider object instead of result.
-
-### DO NOT assume LSP executeCommand available
-
-Zed extension API cannot invoke `workspace/executeCommand` (Issue #13756). Use HTTP channel instead (see .ai/decisions/001-http-not-lsp.md).
+- **Config.toml:** Never add `opt_into_language_servers` or `scope_opt_in_language_servers` (breaks extension LSP)
+- **SuperCollider:** Never use `^` (non-local return) in dictionary functions (breaks `valueArray` return capture)
+- **Zed API:** Cannot invoke `workspace/executeCommand` - use HTTP channel instead (see `decisions/001-http-not-lsp.md`)
 
 ## Prep Checklist (before coding)
 - Ensure dev launcher built only when present; otherwise rely on PATH/settings.
@@ -108,11 +76,12 @@ Zed extension API cannot invoke `workspace/executeCommand` (Issue #13756). Use H
 - Keep docs in sync: when state changes, update `.ai/tasks/2026-01-05-execution-plan.md`, this context, and add research notes as needed; follow existing doc structure.
 - Git hygiene: make small, focused commits (code + related doc updates together), avoid force pushes/reverts of user changes, and mirror the existing concise style (e.g., `fix(extension): ...`, `docs: ...`). Commit when you land a coherent step; keep working tree clean between steps. Include submodule bumps when you change vendored quark files: commit inside `server/quark/LanguageServer.quark` first, then update the parent repo to point to the new submodule SHA.
 
-## Essential Patterns (SuperCollider)
-- Initialize classvars in `*initClass`.
-- Handle nil dictionary keys: `(dict[key] ?? { Array.new }).add(...)`.
-- Avoid `^` in dictionary functions; use expression returns.
-- Copy vendored quark to system only when intentionally testing there; prefer vendored path during development.
+## Essential Patterns
+
+**See `.ai/conventions.md` for full pattern documentation.** Quick reminders:
+- SuperCollider: Initialize classvars in `*initClass`, handle nil dict keys with `??`, avoid `^` in dict functions
+- Quark development: Edit vendored copy, sync to system location only when testing
+- For complete code patterns with GOOD/BAD examples, see conventions.md
 
 ## Known Limitations (Don't Fix These)
 
@@ -127,28 +96,10 @@ If user reports these as "not working", explain they're known limitations.
 
 ## Required User Setup
 
-Context for debugging "user says it doesn't work" issues:
-
-1. **LanguageServer.quark installed:**
-   ```supercollider
-   Quarks.install("LanguageServer");
-   ```
-
-2. **Launcher path configured** in `~/.config/zed/settings.json`:
-   ```json
-   {
-     "lsp": {
-       "supercollider": {
-         "binary": {
-           "path": "/path/to/sc_launcher",
-           "arguments": ["--mode", "lsp", "--http-port", "57130"]
-         }
-       }
-     }
-   }
-   ```
-
-3. **Tasks created** in `.zed/tasks.json` (see .ai/commands.md)
+**See root `README.md` for complete setup instructions.** When debugging "user says it doesn't work" issues, verify:
+1. LanguageServer.quark is installed (`Quarks.install("LanguageServer")`)
+2. Launcher path is configured in `~/.config/zed/settings.json` with `--mode lsp`
+3. Tasks are created in `.zed/tasks.json` for evaluation/server control
 
 ## Common Tasks
 
@@ -167,21 +118,10 @@ Context for debugging "user says it doesn't work" issues:
 
 ## Verification After Changes
 
-**After Quark changes:**
-```bash
-pkill -9 sclang
-grep -i "error\|dnu" /tmp/sclang_post.log
-```
-
-**After config changes:**
-```bash
-grep -i "definition" /tmp/sc_launcher_stdin.log
-```
-
-**After launcher changes:**
-```bash
-curl -X POST -d "1 + 1" http://127.0.0.1:57130/eval
-```
+**See `.ai/commands.md` for complete verification commands.** Quick checks:
+- After Quark changes: `pkill -9 sclang; grep -i "error\|dnu" /tmp/sclang_post.log`
+- After config changes: `grep -i "definition" /tmp/sc_launcher_stdin.log`
+- After launcher changes: `curl -X POST -d "1 + 1" http://127.0.0.1:57130/eval`
 
 ## Key Implementation Notes
 

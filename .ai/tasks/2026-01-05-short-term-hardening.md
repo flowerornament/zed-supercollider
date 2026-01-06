@@ -1,10 +1,11 @@
 ---
 title: "Short-Term Hardening (P1)"
-date: 2026-01-05
+created: 2026-01-05
+updated: 2026-01-05
 priority: P1
 status: backlog
 owners: [team]
-updated: 2026-01-05
+purpose: "P1 robustness and correctness improvements to implement after P0 is complete"
 ---
 
 # Short-Term Hardening (P1)

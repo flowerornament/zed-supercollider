@@ -1,7 +1,12 @@
-# ADR-003: Doc Rehydration for Early LSP Events
+---
+title: "ADR-003: Doc Rehydration for Early LSP Events"
+created: 2026-01-05
+updated: 2026-01-05
+status: Accepted
+purpose: "Architectural decision to cache and rehydrate document state when LSP events arrive before didOpen"
+---
 
-Date: 2026-01-06
-Status: Accepted
+# ADR-003: Doc Rehydration for Early LSP Events
 
 ## Context
 

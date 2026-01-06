@@ -1,3 +1,10 @@
+---
+title: "Prompt: Debug LSP Issue"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "Step-by-step diagnostic procedure for debugging LSP feature failures"
+---
+
 # Prompt: Debug LSP Issue
 
 Use this when LSP features aren't working (completions, navigation, hover, etc.)

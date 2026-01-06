@@ -25,6 +25,15 @@ fn dev_launcher_candidate(worktree: &zed::Worktree) -> Option<String> {
     }
 }
 
+fn launcher_not_found_help() -> String {
+    "supercollider LSP launcher not found.\n\
+- Set lsp.supercollider.binary.path to the sc_launcher binary (args: [\"--mode\",\"lsp\",\"--http-port\",\"57130\"])\n\
+- Or add sc_launcher to PATH so Zed can find it\n\
+- If developing in this repo, run `cargo build --release` in server/launcher to create server/launcher/target/release/sc_launcher\n\
+- Ensure LanguageServer.quark is installed via Quarks.install(\"LanguageServer\");"
+        .into()
+}
+
 fn is_supercollider_server(id: &zed::LanguageServerId) -> bool {
     id.as_ref().eq_ignore_ascii_case("supercollider")
 }
@@ -98,7 +107,7 @@ impl zed::Extension for SuperColliderExtension {
 
         if cmd_path.is_none() {
             eprintln!("[supercollider] no launcher found via settings or PATH");
-            return Err("supercollider LSP launcher not found.\nSet lsp.supercollider.binary.path to the sc_launcher binary (args: [\"--mode\",\"lsp\",\"--http-port\",\"57130\"]) or add sc_launcher to PATH.\nEnsure LanguageServer.quark is installed via Quarks.install(\"LanguageServer\");".into());
+            return Err(launcher_not_found_help());
         }
 
         // Arguments and env from settings if provided.
@@ -185,23 +194,23 @@ impl zed::Extension for SuperColliderExtension {
         let lsp_settings =
             zed::settings::LspSettings::for_worktree("supercollider", worktree).unwrap_or_default();
 
-        let mut cmd = if let Some(path) = lsp_settings.binary.as_ref().and_then(|b| b.path.clone())
-        {
-            zed::process::Command::new(path)
-        } else if let Some(path) = worktree.which("sc_launcher") {
-            zed::process::Command::new(path)
-        } else if let Some(path) = dev_launcher_candidate(worktree) {
-            zed::process::Command::new(path)
-        } else {
-            return Err(
-                "supercollider launcher not found; set lsp.binary.path or add sc_launcher to PATH"
-                    .into(),
-            );
-        };
+        let (launcher_path, mut cmd) =
+            if let Some(path) = lsp_settings.binary.as_ref().and_then(|b| b.path.clone()) {
+                (path.clone(), zed::process::Command::new(path))
+            } else if let Some(path) = worktree.which("sc_launcher") {
+                (path.clone(), zed::process::Command::new(path))
+            } else if let Some(path) = dev_launcher_candidate(worktree) {
+                (path.clone(), zed::process::Command::new(path))
+            } else {
+                return Err(launcher_not_found_help());
+            };
+
+        let mut used_args: Vec<String> = Vec::new();
 
         if let Some(bin) = lsp_settings.binary.as_ref() {
             if let Some(args) = &bin.arguments {
-                cmd = cmd.args(args.iter().cloned());
+                used_args = args.clone();
+                cmd = cmd.args(used_args.clone());
             }
             if let Some(env) = &bin.env {
                 cmd = cmd.envs(env.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -212,10 +221,19 @@ impl zed::Extension for SuperColliderExtension {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                let ok = out.status.success();
+                let ok = out.status == Some(0);
                 let mut text = String::new();
                 text.push_str("SuperCollider: Check Setup\n\n");
                 text.push_str(&format!("status: {}\n", if ok { "ok" } else { "error" }));
+                text.push_str(&format!("launcher: {}\n", launcher_path));
+                if !used_args.is_empty() {
+                    text.push_str(&format!("args: {}\n", used_args.join(" ")));
+                }
+                let status_str = out
+                    .status
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "unknown".into());
+                text.push_str(&format!("exit status: {}\n", status_str));
                 if !stdout.trim().is_empty() {
                     text.push_str("\nstdout:\n");
                     text.push_str(stdout.trim());
@@ -229,6 +247,9 @@ impl zed::Extension for SuperColliderExtension {
                 if !ok {
                     text.push_str(
                         "\nTroubleshooting:\n\
+- Set lsp.supercollider.binary.path to the sc_launcher binary (args: [\"--mode\",\"lsp\",\"--http-port\",\"57130\"]).\n\
+- Add sc_launcher to PATH so Zed can find it.\n\
+- Build the dev launcher in server/launcher with `cargo build --release` (binary at server/launcher/target/release/sc_launcher).\n\
 - Install LanguageServer.quark: Quarks.install(\"LanguageServer\");\n\
 - Example settings snippet:\n\
   \"lsp\": { \"supercollider\": { \"binary\": { \"path\": \"/path/to/sc_launcher\", \"arguments\": [\"--mode\",\"lsp\",\"--http-port\",\"57130\"] } } }\n",

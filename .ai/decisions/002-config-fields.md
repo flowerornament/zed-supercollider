@@ -1,7 +1,12 @@
-# ADR-002: Minimal config.toml
+---
+title: "ADR-002: Minimal config.toml"
+created: 2026-01-05
+updated: 2026-01-05
+status: Accepted
+purpose: "Architectural decision to keep language config minimal and avoid undocumented Zed fields"
+---
 
-Date: 2026-01-05
-Status: Accepted
+# ADR-002: Minimal config.toml
 
 ## Context
 

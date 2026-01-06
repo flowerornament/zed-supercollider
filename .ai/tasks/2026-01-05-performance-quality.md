@@ -1,10 +1,11 @@
 ---
 title: "Performance & Quality (P2)"
-date: 2026-01-05
+created: 2026-01-05
+updated: 2026-01-05
 priority: P2
 status: backlog
 owners: [team]
-updated: 2026-01-05
+purpose: "P2 performance optimization and quality improvements after stability is proven"
 ---
 
 # Performance & Quality (P2)

@@ -1,6 +1,11 @@
-# LSP Navigation Research
+---
+title: "LSP Navigation Research"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "Investigation findings on LSP navigation issues: root cause, solution implementation, and verification"
+---
 
-Date: 2026-01-05
+# LSP Navigation Research
 
 ## Problem
 
@@ -61,16 +66,5 @@ Additional LSP features implemented after navigation fix:
 See `.ai/tasks/2026-01-05-execution-plan.md` for current enhancement priorities.
 
 ## Debugging Commands
-
-```bash
-# Monitor LSP requests
-grep -i "definition\|references" /tmp/sc_launcher_stdin.log
-
-# Check sclang errors
-grep -i "error\|dnu" /tmp/sclang_post.log
-
-# Force restart
-pkill -9 sc_launcher; pkill -9 sclang
-```
 
 See `.ai/commands.md` for complete debugging reference.

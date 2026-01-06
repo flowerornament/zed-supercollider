@@ -1,3 +1,10 @@
+---
+title: "Commands Reference"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "Complete reference of build, test, debug, and deployment commands for the extension"
+---
+
 # Commands Reference
 
 All commands for building, testing, and debugging the extension.

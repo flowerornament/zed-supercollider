@@ -1,3 +1,10 @@
+---
+title: "Prompt: Pick and Execute a Task"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "Workflow template for starting a work session by selecting and executing tasks from the backlog"
+---
+
 # Prompt: Pick and Execute a Task
 
 Use this to start a work session by choosing a task from `.ai/tasks/` and getting moving.

@@ -1,10 +1,11 @@
 ---
 title: "Execution Plan – Stability, Quality, and Delivery (Unified)"
-date: 2026-01-05
+created: 2026-01-05
+updated: 2026-01-05
 priority: umbrella
 status: active
 owners: [team]
-updated: 2026-01-05
+purpose: "Master roadmap organizing all tasks into P0-P3 priorities for shipping a stable, quality extension"
 ---
 
 # Execution Plan – Stability, Quality, and Delivery (Unified)
@@ -19,10 +20,11 @@ Ship a stable, portable extension that avoids user-facing regressions/noise, ali
 
 ## How to Use This Plan
 - Work from the highest-priority active file:
-  - P0: `.ai/tasks/2026-01-05-immediate-fixes.md`
-  - P1: `.ai/tasks/2026-01-05-short-term-hardening.md`
-  - P2: `.ai/tasks/2026-01-05-performance-quality.md`
-  - P3: `.ai/tasks/2026-01-05-features-dx.md`
+  - P0: `.ai/tasks/2026-01-05-immediate-fixes.md` (detailed P0 checklist)
+  - P1: `.ai/tasks/2026-01-05-short-term-hardening.md` (when ready)
+  - P2: `.ai/tasks/2026-01-05-performance-quality.md` (when ready)
+  - P3: `.ai/tasks/2026-01-05-features-dx.md` (when ready)
+- Debugging notes: `.ai/tasks/2026-01-05-lsp.md` (working session notes)
 - Update the relevant file’s `status`/`updated` front matter and `## Status Log` when you make progress.
 - Keep this umbrella as the quick index; detailed bullets live in the priority files.
 

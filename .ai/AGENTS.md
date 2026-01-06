@@ -1,3 +1,10 @@
+---
+title: "AI Agent Documentation"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "Directory map and workflow guide for AI agents working on the SuperCollider extension"
+---
+
 # AI Agent Documentation
 
 Documentation optimized for AI agents.
@@ -10,7 +17,7 @@ Read `context.md` first - primary entry point with project overview, current sta
 
 ```
 .ai/
-  README.md                    # This file
+  AGENTS.md                    # This file
   context.md                   # PRIMARY - current state and quick reference
   architecture.md              # System design deep dive
   conventions.md               # Code patterns and anti-patterns

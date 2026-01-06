@@ -1,7 +1,12 @@
-# ADR-001: HTTP Evaluation Instead of LSP executeCommand
+---
+title: "ADR-001: HTTP Evaluation Instead of LSP executeCommand"
+created: 2026-01-04
+updated: 2026-01-04
+status: Accepted
+purpose: "Architectural decision to use HTTP for code evaluation instead of LSP workspace/executeCommand"
+---
 
-Date: 2026-01-04
-Status: Accepted
+# ADR-001: HTTP Evaluation Instead of LSP executeCommand
 
 ## Context
 

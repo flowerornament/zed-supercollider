@@ -1,3 +1,10 @@
+---
+title: "Architecture"
+created: 2026-01-05
+updated: 2026-01-05
+purpose: "System design, component interactions, data flows, and extension points for the SuperCollider Zed extension"
+---
+
 # Architecture
 
 ## System Overview

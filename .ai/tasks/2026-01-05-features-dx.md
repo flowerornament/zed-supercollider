@@ -1,10 +1,11 @@
 ---
 title: "Features & Developer Experience (P3)"
-date: 2026-01-05
+created: 2026-01-05
+updated: 2026-01-05
 priority: P3
 status: backlog
 owners: [team]
-updated: 2026-01-05
+purpose: "P3 new features and developer experience enhancements for when core functionality is stable"
 ---
 
 # Features & Developer Experience (P3)
