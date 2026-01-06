@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{
@@ -67,6 +68,56 @@ fn verbose_logging_enabled() -> bool {
     debug_file_logs_enabled() || std::env::var("SC_LAUNCHER_DEBUG").is_ok()
 }
 
+fn post_log_enabled() -> bool {
+    std::env::var("SC_LAUNCHER_POST_LOG")
+        .map(|v| v != "0")
+        .unwrap_or(true)
+}
+
+/// Construct an sclang command, forcing the appropriate architecture slice on macOS.
+fn make_sclang_command(path: &str) -> Command {
+    #[cfg(target_os = "macos")]
+    {
+        if cfg!(target_arch = "x86_64") {
+            let mut cmd = Command::new("arch");
+            cmd.arg("-x86_64").arg(path);
+            return cmd;
+        }
+    }
+
+    Command::new(path)
+}
+
+fn detect_sclang(args: &Args) -> Result<String> {
+    if let Some(path) = &args.sclang_path {
+        return Ok(path.clone());
+    }
+
+    if let Ok(env_path) = std::env::var("SCLANG_PATH") {
+        if Path::new(&env_path).exists() {
+            eprintln!("[sc_launcher] using sclang from SCLANG_PATH={}", env_path);
+            return Ok(env_path);
+        }
+    }
+
+    if let Ok(path) = which::which("sclang") {
+        return Ok(path.display().to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let default_mac = "/Applications/SuperCollider.app/Contents/MacOS/sclang";
+        if Path::new(default_mac).exists() {
+            eprintln!("[sc_launcher] using default macOS sclang at {}", default_mac);
+            return Ok(default_mac.to_string());
+        }
+    }
+
+    Err(anyhow!(
+        "sclang not found; set --sclang-path or SCLANG_PATH, or add sclang to PATH"
+    ))
+}
+
 fn main() -> Result<()> {
     // Write startup log to a file since stderr may be buffered/filtered by Zed
     if debug_file_logs_enabled() {
@@ -104,18 +155,12 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let sclang = match &args.sclang_path {
-        Some(p) => p.clone(),
-        None => which::which("sclang")
-            .map_err(|_| anyhow!("sclang not found on PATH; set --sclang-path"))?
-            .display()
-            .to_string(),
-    };
+    let sclang = detect_sclang(&args)?;
 
     match args.mode {
         Mode::Probe => {
             // For now, just run `sclang -v` to confirm availability.
-            let output = Command::new(&sclang)
+            let output = make_sclang_command(&sclang)
                 .arg("-v")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -161,7 +206,7 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let ports = allocate_udp_ports().context("failed to reserve UDP ports for LSP bridge")?;
     let shutdown = Arc::new(AtomicBool::new(false));
 
-    let mut command = Command::new(sclang);
+    let mut command = make_sclang_command(sclang);
     command
         .arg("--daemon")
         .stdin(Stdio::piped())
@@ -436,19 +481,32 @@ where
     R: Read + Send + 'static,
 {
     let verbose = verbose_logging_enabled();
+    let log_to_file = post_log_enabled();
     thread::Builder::new()
         .name(format!("{label}-reader"))
         .spawn(move || {
             // Open post window log file for user-visible output
             let post_log_path = log_dir().join("sclang_post.log");
-            let mut post_file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&post_log_path)
-                .ok();
+            let mut post_file = if log_to_file {
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&post_log_path)
+                    .ok()
+            } else {
+                None
+            };
 
             if post_file.is_some() && label == "sclang stdout" {
-                eprintln!("[sc_launcher] sclang output → {}", post_log_path.display());
+                eprintln!(
+                    "[sc_launcher] sclang output -> {}",
+                    post_log_path.display()
+                );
+            } else if log_to_file && post_file.is_none() {
+                eprintln!(
+                    "[sc_launcher] warning: failed to open post log at {}",
+                    post_log_path.display()
+                );
             }
 
             let mut reader = BufReader::new(stream);
@@ -459,49 +517,51 @@ where
                 }
                 let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
                 if !trimmed.is_empty() {
-                    if verbose {
+                    if verbose || !log_to_file {
                         eprintln!("[{label}] {trimmed}");
                     }
 
                     // Write stdout to post window log file (filter out verbose LSP debug messages)
-                    if let Some(ref mut f) = post_file {
-                        // Skip LSP internal protocol messages - users don't need to see these
-                        let skip_patterns = [
-                            "[LANGUAGESERVER.QUARK] Message received:",
-                            "[LANGUAGESERVER.QUARK] Expecting",
-                            "[LANGUAGESERVER.QUARK] Found method provider:",
-                            "[LANGUAGESERVER.QUARK] Handling:",
-                            "[LANGUAGESERVER.QUARK] Checking for client capability",
-                            "[LANGUAGESERVER.QUARK] Responding with:",
-                            "[LANGUAGESERVER.QUARK] Creating LSP document",
-                            "[LANGUAGESERVER.QUARK] Handling a follow-up",
-                            "[LANGUAGESERVER.QUARK] client options:",
-                            "[LANGUAGESERVER.QUARK] No provider found for method:",
-                            "[LANGUAGESERVER.QUARK] Registering provider:",
-                            "[LANGUAGESERVER.QUARK] Adding server capability",
-                            "[LANGUAGESERVER.QUARK] writing options into key",
-                            "[LANGUAGESERVER.QUARK] Adding provider for method",
-                            "[LANGUAGESERVER.QUARK] Server capabilities are:",
-                            "[LANGUAGESERVER.QUARK] Overwriting provider",
-                            "[LANGUAGESERVER.QUARK] initializing",
-                            "Deferred(",
-                            "{\"jsonrpc\":",
-                            "{\"id\":",
-                            "{\"method\":",
-                            "Dictionary[",
-                            "...etc...",
-                        ];
+                    if log_to_file {
+                        if let Some(ref mut f) = post_file {
+                            // Skip LSP internal protocol messages - users don't need to see these
+                            let skip_patterns = [
+                                "[LANGUAGESERVER.QUARK] Message received:",
+                                "[LANGUAGESERVER.QUARK] Expecting",
+                                "[LANGUAGESERVER.QUARK] Found method provider:",
+                                "[LANGUAGESERVER.QUARK] Handling:",
+                                "[LANGUAGESERVER.QUARK] Checking for client capability",
+                                "[LANGUAGESERVER.QUARK] Responding with:",
+                                "[LANGUAGESERVER.QUARK] Creating LSP document",
+                                "[LANGUAGESERVER.QUARK] Handling a follow-up",
+                                "[LANGUAGESERVER.QUARK] client options:",
+                                "[LANGUAGESERVER.QUARK] No provider found for method:",
+                                "[LANGUAGESERVER.QUARK] Registering provider:",
+                                "[LANGUAGESERVER.QUARK] Adding server capability",
+                                "[LANGUAGESERVER.QUARK] writing options into key",
+                                "[LANGUAGESERVER.QUARK] Adding provider for method",
+                                "[LANGUAGESERVER.QUARK] Server capabilities are:",
+                                "[LANGUAGESERVER.QUARK] Overwriting provider",
+                                "[LANGUAGESERVER.QUARK] initializing",
+                                "Deferred(",
+                                "{\"jsonrpc\":",
+                                "{\"id\":",
+                                "{\"method\":",
+                                "Dictionary[",
+                                "...etc...",
+                            ];
 
-                        // Also skip lines that are SC data structure continuations (start with whitespace or special patterns)
-                        let is_data_continuation = trimmed.starts_with(' ')
-                            || trimmed.starts_with('\t')
-                            || (trimmed.starts_with('(') && trimmed.contains("->"))
-                            || trimmed.starts_with(", '");
+                            // Also skip lines that are SC data structure continuations (start with whitespace or special patterns)
+                            let is_data_continuation = trimmed.starts_with(' ')
+                                || trimmed.starts_with('\t')
+                                || (trimmed.starts_with('(') && trimmed.contains("->"))
+                                || trimmed.starts_with(", '");
 
-                        let should_skip = skip_patterns.iter().any(|pat| trimmed.contains(pat))
-                            || is_data_continuation;
-                        if !should_skip {
-                            let _ = writeln!(f, "{}", trimmed);
+                            let should_skip = skip_patterns.iter().any(|pat| trimmed.contains(pat))
+                                || is_data_continuation;
+                            if !should_skip {
+                                let _ = writeln!(f, "{}", trimmed);
+                            }
                         }
                     }
 

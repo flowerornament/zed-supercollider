@@ -1,17 +1,35 @@
 ---
 title: "Immediate Fixes (P0) – Stability & Correctness"
-date: 2026-01-05
+created: 2026-01-05
+updated: 2026-01-05
 priority: P0
 status: active
 owners: [team]
-updated: 2026-01-05
+purpose: "P0 checklist for shipping highest-priority stability and correctness fixes"
 ---
 
 # Immediate Fixes (P0) – Stability & Correctness
 
+**Part of:** [Execution Plan](2026-01-05-execution-plan.md) (master roadmap)
+
 Single-source checklist for shipping the highest-priority fixes. Use this when triaging or landing urgent changes. Keep code + docs in sync and link evidence for each item.
 
 ## Status Log
+- 2026-01-05: Added `scripts/validate-config.sh` to block banned Zed language keys and require base fields; post window file logging now honors `SC_LAUNCHER_POST_LOG` with stderr fallback when disabled.
+- 2026-01-05: Check setup task passes (sclang 3.14.1 at /Applications/SuperCollider.app/Contents/MacOS/sclang; launcher at server/launcher/target/release/sc_launcher). Language server running; next P0 to tackle: capability hygiene (drop unused capabilities, align advertised features) or shutdown safety.
+- 2026-01-05: Added `scripts/check-setup.sh` and pointed the task to it to avoid shell quoting issues; script selects dev launcher, SC_LAUNCHER_PATH, then PATH and runs probe.
+- 2026-01-05: Check setup task now runs `bash -lc` with a simpler launcher fallback (dev binary -> SC_LAUNCHER_PATH -> PATH) and always prints the launcher path.
+- 2026-01-05: Check setup task now uses bash -c with simpler env expansion (ROOT from ZED_WORKTREE_ROOT or PWD) to avoid shell parse errors; still prefers dev launcher.
+- 2026-01-05: Check setup task now uses ZED_WORKTREE_ROOT (or PWD) and echoes the resolved launcher path; shell switched back to sh to avoid interactive surprises.
+- 2026-01-05: Check setup task now runs via zsh and roots relative to the task file directory to reliably find the built launcher; falls back to PATH only if dev binary absent.
+- 2026-01-05: Check setup task now falls back to PWD-based dev launcher detection (no git required) with clearer path handling.
+- 2026-01-05: Check setup task now uses git root (or cwd) when resolving dev launcher, with clearer error output including cwd/root for debugging.
+- 2026-01-05: Check setup task now uses workspace PWD to find dev launcher reliably; should pick server/launcher/target/release/sc_launcher automatically.
+- 2026-01-05: Check setup task now falls back to repo-built launcher (server/launcher/target/release/sc_launcher) before PATH to avoid manual SC_LAUNCHER_PATH when dev build exists.
+- 2026-01-05: Added a normal Zed task (“SuperCollider: Check Setup”) to run `sc_launcher --mode probe` for users without slash commands.
+- 2026-01-05: Fixed Zed config parse error by constraining `word_characters` to single characters (`["_", "?"]`) so extension loads again.
+- 2026-01-05: Updated rust-toolchain to target wasm32-wasip1 to unblock extension build in Zed (wasm32-wasi target no longer present on current Rust).
+- 2026-01-05: Improved launcher missing-help text and slash command output; check-setup now reports launcher path/args/status and troubleshooting tips.
 - 2026-01-05: Status set to active; checklist items remain in flight.
 
 ## Scope & Link
