@@ -68,7 +68,7 @@ fn shutdown_reaps_running_child() {
     } // only need a connected socket for send
 
     let status =
-        graceful_shutdown_child(&mut child, &sock, StdDuration::from_millis(200), 42).unwrap();
+        graceful_shutdown_child(&mut child, &sock, StdDuration::from_millis(50), 42).unwrap();
 
     // Child should no longer be running and must be reapable.
     assert!(
@@ -101,7 +101,7 @@ fn shutdown_handles_already_exited_child() {
     }
 
     let status =
-        graceful_shutdown_child(&mut child, &sock, StdDuration::from_millis(50), 99).unwrap();
+        graceful_shutdown_child(&mut child, &sock, StdDuration::from_millis(10), 99).unwrap();
     assert!(
         child.try_wait().unwrap().is_some(),
         "already-exited child remains exited"
