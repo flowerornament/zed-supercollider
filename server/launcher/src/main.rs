@@ -54,7 +54,7 @@ fn timestamp() -> String {
 /// - Warn when LanguageServer.quark is absent.
 /// - Launch sclang with LanguageServer enabled and bridge UDP↔stdio.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
-enum Mode {
+pub enum Mode {
     /// Probe sclang availability and print JSON
     Probe,
     /// Run the LSP bridge (stdin/stdout ↔ LanguageServer.quark UDP transport)
@@ -63,26 +63,26 @@ enum Mode {
 
 #[derive(Parser, Debug)]
 #[command(name = "sc_launcher", version, about = "Launch sclang LSP for Zed")]
-struct Args {
+pub struct Args {
     /// Path to sclang executable (overrides detection)
     #[arg(long)]
-    sclang_path: Option<String>,
+    pub sclang_path: Option<String>,
 
     /// Optional SuperCollider config YAML path
     #[arg(long)]
-    conf_yaml_path: Option<String>,
+    pub conf_yaml_path: Option<String>,
 
     /// Launcher mode
     #[arg(long, value_enum, default_value_t = Mode::Probe)]
-    mode: Mode,
+    pub mode: Mode,
 
     /// Optional LSP log level forwarded to LanguageServer.quark (e.g. error, warn, info, debug)
     #[arg(long, value_name = "LEVEL")]
-    log_level: Option<String>,
+    pub log_level: Option<String>,
 
     /// HTTP server port for eval requests (0 = auto-assign, default 57130)
     #[arg(long, default_value_t = 57130)]
-    http_port: u16,
+    pub http_port: u16,
 }
 
 fn log_dir() -> std::path::PathBuf {
@@ -222,12 +222,25 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
+pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
+    let run_token = RUN_TOKEN.fetch_add(1, Ordering::SeqCst);
+    if IS_RUNNING.swap(true, Ordering::SeqCst) {
+        eprintln!(
+            "[sc_launcher] run token {}: launcher already running; refusing second spawn",
+            run_token
+        );
+        return Err(anyhow!(
+            "sc_launcher already running (token {}) - refusing duplicate spawn",
+            run_token
+        ));
+    }
+    let _run_guard = RunningGuard { run_token };
     // Log version at startup to confirm which binary is running
     eprintln!(
-        "[sc_launcher] v{} starting LSP bridge (pid={})",
+        "[sc_launcher] v{} starting LSP bridge (pid={}, run={})",
         env!("CARGO_PKG_VERSION"),
-        std::process::id()
+        std::process::id(),
+        run_token
     );
 
     let quark_ok = ensure_quark_present();
@@ -237,6 +250,7 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     let ports = allocate_udp_ports().context("failed to reserve UDP ports for LSP bridge")?;
     let shutdown = Arc::new(AtomicBool::new(false));
+    let child_state: Arc<Mutex<Option<ChildState>>> = Arc::new(Mutex::new(None));
 
     let mut command = make_sclang_command(sclang);
     command
@@ -309,6 +323,20 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let mut child = command
         .spawn()
         .with_context(|| format!("failed to spawn sclang at {}", sclang))?;
+
+    {
+        let pid = child.id();
+        let mut slot = child_state.lock().unwrap_or_else(|e| e.into_inner());
+        *slot = Some(ChildState {
+            pid,
+            run_token,
+            owned: AtomicBool::new(true),
+        });
+        eprintln!(
+            "[sc_launcher] run token {}: spawned sclang pid={}",
+            run_token, pid
+        );
+    }
 
     // Wait for LSP READY signal from sclang stdout before pumping stdin to UDP
     let (ready_tx, ready_rx) = mpsc::channel();
@@ -418,18 +446,27 @@ fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let status = loop {
         match child.try_wait() {
             Ok(Some(exit_status)) => {
+                release_child_state(&child_state);
                 break Ok(exit_status);
             }
             Ok(None) => {}
             Err(err) => {
+                release_child_state(&child_state);
                 break Err(anyhow!("failed to poll sclang status: {err}"));
             }
         }
 
         if stdin_done_rx.try_recv().is_ok() {
             stdin_closed = true;
-            let exit_status = graceful_shutdown_child(&mut child, &udp_sender, Duration::from_secs(5))
+            shutdown.store(true, Ordering::SeqCst);
+            let exit_status = graceful_shutdown_child(
+                &mut child,
+                &udp_sender,
+                Duration::from_secs(5),
+                run_token,
+            )
                 .context("failed to shut down sclang after stdin closed")?;
+            release_child_state(&child_state);
             break Ok(exit_status);
         }
 
@@ -577,6 +614,43 @@ struct Ports {
     server_port: u16,
 }
 
+struct ChildState {
+    pid: u32,
+    run_token: u64,
+    owned: AtomicBool,
+}
+
+struct RunningGuard {
+    run_token: u64,
+}
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        IS_RUNNING.store(false, Ordering::SeqCst);
+        eprintln!(
+            "[sc_launcher] run token {}: cleared running guard",
+            self.run_token
+        );
+    }
+}
+
+/// Monotonic token to tag each launcher run for log disambiguation.
+static RUN_TOKEN: AtomicU64 = AtomicU64::new(1);
+/// Simple guard to prevent multiple concurrent sclang spawns from this process.
+pub static IS_RUNNING: AtomicBool = AtomicBool::new(false);
+
+fn release_child_state(state: &Arc<Mutex<Option<ChildState>>>) {
+    if let Ok(mut slot) = state.lock() {
+        if let Some(child) = slot.take() {
+            child.owned.store(false, Ordering::SeqCst);
+            eprintln!(
+                "[sc_launcher] run token {}: released tracked sclang pid {}",
+                child.run_token, child.pid
+            );
+        }
+    }
+}
+
 fn allocate_udp_ports() -> Result<Ports> {
     let client_socket =
         UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).context("bind client port")?;
@@ -639,7 +713,8 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
                         "supercollider.internal.rebootServer",
                         "supercollider.internal.quitServer",
                         "supercollider.internal.recompile",
-                        "supercollider.internal.cmdPeriod"
+                        "supercollider.internal.cmdPeriod",
+                        "supercollider.internal.openPostLog"
                     ]
                 }
             },
@@ -651,13 +726,16 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
     })
 }
 
-fn graceful_shutdown_child(
+pub fn graceful_shutdown_child(
     child: &mut std::process::Child,
     udp_socket: &UdpSocket,
     timeout: Duration,
+    run_token: u64,
 ) -> Result<std::process::ExitStatus> {
     eprintln!(
-        "[sc_launcher] stdin closed; requesting LSP shutdown (timeout {:?})",
+        "[sc_launcher] run token {}: stdin closed; requesting LSP shutdown for pid {} (timeout {:?})",
+        run_token,
+        child.id(),
         timeout
     );
     request_lsp_shutdown(udp_socket);
@@ -679,11 +757,13 @@ fn graceful_shutdown_child(
     #[cfg(unix)]
     {
         let pid = child.id();
-        eprintln!("[sc_launcher] sending SIGTERM to sclang pid {}", pid);
-        let _ = Command::new("kill")
-            .arg("-TERM")
-            .arg(pid.to_string())
-            .status();
+        eprintln!(
+            "[sc_launcher] run token {}: sending SIGTERM to sclang pid {}",
+            run_token, pid
+        );
+        unsafe {
+            libc::kill(pid as i32, libc::SIGTERM);
+        }
 
         let term_start = std::time::Instant::now();
         while term_start.elapsed() < Duration::from_secs(2) {
@@ -692,7 +772,8 @@ fn graceful_shutdown_child(
                 Ok(None) => {}
                 Err(err) => {
                     return Err(anyhow!(
-                        "failed to poll sclang status after SIGTERM: {err}"
+                        "run token {}: failed to poll sclang status after SIGTERM: {err}",
+                        run_token
                     ))
                 }
             }
@@ -700,7 +781,10 @@ fn graceful_shutdown_child(
         }
     }
 
-    eprintln!("[sc_launcher] forcing sclang shutdown with kill");
+    eprintln!(
+        "[sc_launcher] run token {}: forcing sclang shutdown with kill",
+        run_token
+    );
     child
         .kill()
         .context("failed to kill sclang process after shutdown request")?;
@@ -909,7 +993,7 @@ fn pump_stdin_to_udp(
                 }
                 // Log incoming LSP method for debugging and handle initialize specially
                 let is_buffered = !sclang_ready.load(Ordering::SeqCst);
-                let should_forward = true;
+                let mut should_forward = true;
 
                 if let Ok(body_str) = std::str::from_utf8(&message) {
                     if let Some(body_start) = body_str.find("\r\n\r\n") {
@@ -1480,7 +1564,11 @@ fn send_lsp_payload(udp_socket: &UdpSocket, payload: &serde_json::Value) -> io::
 
 /// Run the HTTP server for eval requests.
 /// Accepts POST /eval with code in the body, sends workspace/executeCommand to sclang.
-fn run_http_server(port: u16, udp_socket: UdpSocket, shutdown: Arc<AtomicBool>) -> Result<()> {
+pub fn run_http_server(
+    port: u16,
+    udp_socket: UdpSocket,
+    shutdown: Arc<AtomicBool>,
+) -> Result<()> {
     let addr = format!("127.0.0.1:{}", port);
     let server = match Server::http(&addr) {
         Ok(s) => s,

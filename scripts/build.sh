@@ -46,3 +46,11 @@ else
     echo "Build completed but WASM not found at $WASM_ARTIFACT" >&2
     exit 1
 fi
+
+echo "Running launcher tests..."
+(
+    cd "$ROOT/server/launcher"
+    cargo test
+)
+
+echo "All builds and tests completed successfully."
