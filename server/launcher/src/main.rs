@@ -125,6 +125,7 @@ pub struct Args {
 
 fn log_dir() -> std::path::PathBuf {
     std::env::var_os("SC_TMP_DIR")
+        .or_else(|| std::env::var_os("TMPDIR"))
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir())
 }
