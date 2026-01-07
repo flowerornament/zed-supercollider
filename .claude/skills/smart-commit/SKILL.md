@@ -17,7 +17,6 @@ This skill checks if **ANY** of these conditions are met (configurable in `.clau
 - **Files changed** ≥ 10 files modified/added/deleted
 - **Lines changed** ≥ 100 total (additions + deletions)
 - **Core files modified** - Critical files like `main.rs`, `Cargo.toml`, etc.
-- **New feature** - Commit message indicates feature work
 
 ## How to Use
 
@@ -146,7 +145,11 @@ Extract:
 
 ### 3. Check Core Files
 
-For each file in `core_files[]`, check if it appears in `git status --short` output.
+For each pattern in `core_files[]`, check if any file from `git status --short` matches:
+- **Exact paths** (e.g., `Cargo.toml`) - match the exact file path
+- **Glob patterns** (e.g., `.claude/skills/*/SKILL.md`) - expand `*` to match any directory name
+
+Use standard glob matching (e.g., `*` matches any characters within a path segment).
 
 ### 4. Evaluate Conditions
 
