@@ -1,5 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft-07/schema#",
   "description": "Policy for when to create PRs vs direct commits in Claude Code",
   "thresholds": {
     "files_changed": 10,
@@ -7,11 +6,15 @@
     "core_files": [
       "server/launcher/src/main.rs",
       "server/launcher/src/lib.rs",
+      "server/launcher/Cargo.toml",
       "supercollider/extension.ts",
       "supercollider/src/extension.ts",
       "Cargo.toml",
       "package.json",
-      "tsconfig.json"
+      "tsconfig.json",
+      ".claude-pr-policy.json",
+      "AGENTS.md",
+      ".claude/skills/*/SKILL.md"
     ]
   },
   "pr_required_if": "any",

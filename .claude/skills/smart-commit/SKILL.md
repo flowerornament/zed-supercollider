@@ -148,7 +148,6 @@ Check each condition:
 - [ ] `files_changed >= threshold`
 - [ ] `lines_changed >= threshold`
 - [ ] Any core file is modified
-- [ ] Current branch is NOT main/master
 
 ### 5. Make Decision
 
@@ -185,6 +184,26 @@ Then execute the appropriate skill:
 
 1. **Always show reasoning** - Tell user why you chose PR vs commit
 2. **Be conservative** - When in doubt, create a PR
-3. **Check branch** - If not on main/master, always use `/pr`
-4. **Verify staged changes** - Ensure there's something to commit
-5. **Respect existing skills** - Use `/pr` and `/commit` as-is, don't reimplement
+3. **Verify staged changes** - Ensure there's something to commit
+4. **Respect existing skills** - Use `/pr` and `/commit` as-is, don't reimplement
+
+## Default Configuration
+
+If `.claude-pr-policy.json` is missing or cannot be read, use these defaults:
+
+```json
+{
+  "thresholds": {
+    "files_changed": 10,
+    "lines_changed": 100,
+    "core_files": []
+  },
+  "pr_required_if": "any"
+}
+```
+
+**What the defaults mean:**
+- **files_changed: 10** - Create PR if 10 or more files are modified
+- **lines_changed: 100** - Create PR if 100 or more lines changed (additions + deletions)
+- **core_files: []** - No core files defined, so this condition never triggers
+- **pr_required_if: "any"** - Create PR if ANY threshold is exceeded (OR logic)

@@ -136,6 +136,8 @@ fn status_line(body: &str) -> Option<String> {
 #[test]
 fn http_health_and_shutdown() {
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Create UDP socket pair. The receiver (_recv) is needed to get a valid address
+    // for connecting the sender, but isn't used in this test. RAII handles cleanup.
     let Some((_recv, receiver_addr, udp_sender)) = udp_pair() else {
         return;
     };
@@ -175,6 +177,7 @@ fn http_health_and_shutdown() {
 #[test]
 fn http_eval_sends_udp() {
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Create UDP socket pair. The receiver is used to verify UDP payload delivery.
     let Some((receiver, receiver_addr, udp_sender)) = udp_pair() else {
         return;
     };
