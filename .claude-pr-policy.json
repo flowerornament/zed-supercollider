@@ -1,5 +1,6 @@
 {
   "description": "Policy for when to create PRs vs direct commits in Claude Code",
+  "exclude_paths": [".beads/"],
   "thresholds": {
     "files_changed": 10,
     "lines_changed": 100,
@@ -19,6 +20,7 @@
   },
   "pr_required_if": "any",
   "comments": {
+    "exclude_paths": "Paths to ignore when counting changes (e.g., .beads/ for issue tracker)",
     "files_changed": "Number of modified/added/deleted files",
     "lines_changed": "Total additions + deletions",
     "core_files": "List of critical files that always require PR",

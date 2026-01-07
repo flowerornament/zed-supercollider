@@ -121,7 +121,7 @@ git status --short
 git diff --stat
 ```
 
-Calculate:
+Calculate (after filtering out `exclude_paths[]` from policy):
 - **files_changed**: Count lines from `git status --short` matching `^\s*[MADRCU]`
 - **lines_changed**: Sum additions + deletions from `--stat`
 
@@ -133,10 +133,16 @@ cat .claude-pr-policy.json
 ```
 
 Extract:
+- `exclude_paths[]` (paths to ignore when counting, e.g., `.beads/`)
 - `thresholds.files_changed`
 - `thresholds.lines_changed`
 - `thresholds.core_files[]`
 - `pr_required_if` (defaults to "any")
+
+**Important**: Filter out files matching `exclude_paths[]` before counting:
+- Remove excluded files from file count
+- Remove excluded files from line change totals
+- Excluded files can still match core_files (if explicitly listed)
 
 ### 3. Check Core Files
 
@@ -193,6 +199,7 @@ If `.claude-pr-policy.json` is missing or cannot be read, use these defaults:
 
 ```json
 {
+  "exclude_paths": [],
   "thresholds": {
     "files_changed": 10,
     "lines_changed": 100,
@@ -203,6 +210,7 @@ If `.claude-pr-policy.json` is missing or cannot be read, use these defaults:
 ```
 
 **What the defaults mean:**
+- **exclude_paths: []** - No paths excluded from analysis
 - **files_changed: 10** - Create PR if 10 or more files are modified
 - **lines_changed: 100** - Create PR if 100 or more lines changed (additions + deletions)
 - **core_files: []** - No core files defined, so this condition never triggers
