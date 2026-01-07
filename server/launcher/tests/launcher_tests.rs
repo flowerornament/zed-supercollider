@@ -136,9 +136,14 @@ fn status_line(body: &str) -> Option<String> {
 #[test]
 fn http_health_and_shutdown() {
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let Some((_recv, _addr, udp_sender)) = udp_pair() else {
+    // Create UDP socket pair. The receiver (_recv) is needed to get a valid address
+    // for connecting the sender, but isn't used in this test. RAII handles cleanup.
+    let Some((_recv, receiver_addr, udp_sender)) = udp_pair() else {
         return;
     };
+    if !connect_or_skip(&udp_sender, receiver_addr) {
+        return;
+    }
 
     let port = pick_free_port();
     let shutdown_clone = shutdown.clone();
@@ -158,9 +163,9 @@ fn http_health_and_shutdown() {
         line
     );
 
-    // Signal shutdown and unblock accept with a dummy request
+    // Signal shutdown and send a final request to unblock the server
     shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
-    let _ = TcpStream::connect(("127.0.0.1", port));
+    let _ = http_request(port, "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
 
     let result = handle
         .join()
@@ -172,9 +177,13 @@ fn http_health_and_shutdown() {
 #[test]
 fn http_eval_sends_udp() {
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let Some((receiver, _receiver_addr, udp_sender)) = udp_pair() else {
+    // Create UDP socket pair. The receiver is used to verify UDP payload delivery.
+    let Some((receiver, receiver_addr, udp_sender)) = udp_pair() else {
         return;
     };
+    if !connect_or_skip(&udp_sender, receiver_addr) {
+        return;
+    }
 
     let port = pick_free_port();
     let shutdown_clone = shutdown.clone();
@@ -210,9 +219,9 @@ fn http_eval_sends_udp() {
         payload
     );
 
-    // Signal shutdown and unblock accept with a dummy request
+    // Signal shutdown and send a final request to unblock the server
     shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
-    let _ = TcpStream::connect(("127.0.0.1", port));
+    let _ = http_request(port, "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
 
     let result = handle
         .join()

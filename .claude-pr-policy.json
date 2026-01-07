@@ -1,0 +1,27 @@
+{
+  "description": "Policy for when to create PRs vs direct commits in Claude Code",
+  "thresholds": {
+    "files_changed": 10,
+    "lines_changed": 100,
+    "core_files": [
+      "server/launcher/src/main.rs",
+      "server/launcher/src/lib.rs",
+      "server/launcher/Cargo.toml",
+      "supercollider/extension.ts",
+      "supercollider/src/extension.ts",
+      "Cargo.toml",
+      "package.json",
+      "tsconfig.json",
+      ".claude-pr-policy.json",
+      "AGENTS.md",
+      ".claude/skills/*/SKILL.md"
+    ]
+  },
+  "pr_required_if": "any",
+  "comments": {
+    "files_changed": "Number of modified/added/deleted files",
+    "lines_changed": "Total additions + deletions",
+    "core_files": "List of critical files that always require PR",
+    "pr_required_if": "Logic: 'any' (OR) or 'all' (AND)"
+  }
+}
