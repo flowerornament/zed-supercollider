@@ -2,9 +2,9 @@ id = "supercollider-lang"
 name = "SuperCollider"
 version = "0.1.0"
 schema_version = 1
-authors = ["Zed SuperCollider Team <devnull@example.com>"]
+authors = ["flowerornament"]
 description = "SuperCollider language support: grammar, queries, LSP bootstrap, evaluation, and snippets."
-repository = "https://github.com/your-org/zed-supercollider"
+repository = "https://github.com/flowerornament/zed-supercollider"
 languages = ["languages/SuperCollider"]
 
 # Pin the Tree-sitter grammar used by this language.

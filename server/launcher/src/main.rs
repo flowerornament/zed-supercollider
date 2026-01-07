@@ -105,6 +105,36 @@ fn post_log_enabled() -> bool {
         .unwrap_or(true)
 }
 
+fn pid_file_path() -> std::path::PathBuf {
+    log_dir().join("sc_launcher.pid")
+}
+
+/// Write PID file with launcher and sclang PIDs for safe cleanup.
+/// Returns Ok(()) on success, Err on failure (non-fatal, just logged).
+pub fn write_pid_file(launcher_pid: u32, sclang_pid: u32) -> Result<()> {
+    let path = pid_file_path();
+    let content = serde_json::json!({
+        "launcher_pid": launcher_pid,
+        "sclang_pid": sclang_pid
+    });
+    std::fs::write(&path, content.to_string())
+        .with_context(|| format!("failed to write PID file at {:?}", path))?;
+    eprintln!("[sc_launcher] wrote PID file at {:?}", path);
+    Ok(())
+}
+
+/// Remove PID file on graceful shutdown.
+pub fn remove_pid_file() {
+    let path = pid_file_path();
+    if path.exists() {
+        if let Err(e) = std::fs::remove_file(&path) {
+            eprintln!("[sc_launcher] warning: failed to remove PID file {:?}: {}", path, e);
+        } else {
+            eprintln!("[sc_launcher] removed PID file at {:?}", path);
+        }
+    }
+}
+
 /// Construct an sclang command, forcing the appropriate architecture slice on macOS.
 fn make_sclang_command(path: &str) -> Command {
     #[cfg(target_os = "macos")]
@@ -336,6 +366,10 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
             "[sc_launcher] run token {}: spawned sclang pid={}",
             run_token, pid
         );
+        // Write PID file for safe cleanup by external tools
+        if let Err(e) = write_pid_file(std::process::id(), pid) {
+            eprintln!("[sc_launcher] warning: {}", e);
+        }
     }
 
     // Wait for LSP READY signal from sclang stdout before pumping stdin to UDP
@@ -484,6 +518,9 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     if let Some(handle) = stderr_handle {
         let _ = handle.join();
     }
+
+    // Clean up PID file on graceful shutdown
+    remove_pid_file();
 
     if status.success() {
         Ok(())

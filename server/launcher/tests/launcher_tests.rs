@@ -240,3 +240,24 @@ fn duplicate_spawn_guard_blocks_second_run() {
         "second concurrent run should be rejected by guard"
     );
 }
+
+#[test]
+fn pid_file_write_and_remove() {
+    // Write PID file
+    let launcher_pid = 12345;
+    let sclang_pid = 67890;
+    write_pid_file(launcher_pid, sclang_pid).expect("write_pid_file should succeed");
+
+    // Verify file exists and contains expected JSON
+    let pid_path = std::env::temp_dir().join("sc_launcher.pid");
+    assert!(pid_path.exists(), "PID file should exist after write");
+
+    let content = std::fs::read_to_string(&pid_path).expect("read PID file");
+    let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse PID JSON");
+    assert_eq!(parsed["launcher_pid"], launcher_pid);
+    assert_eq!(parsed["sclang_pid"], sclang_pid);
+
+    // Remove PID file
+    remove_pid_file();
+    assert!(!pid_path.exists(), "PID file should be removed after cleanup");
+}

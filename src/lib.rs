@@ -38,12 +38,6 @@ fn is_supercollider_server(id: &zed::LanguageServerId) -> bool {
     id.as_ref().eq_ignore_ascii_case("supercollider")
 }
 
-fn set_default_env(env: &mut zed::EnvVars, key: &str, value: &str) {
-    if !env.iter().any(|(k, _)| k == key) {
-        env.push((key.to_string(), value.to_string()));
-    }
-}
-
 fn default_workspace_settings() -> Value {
     json!({
         "supercollider": {
@@ -136,10 +130,6 @@ impl zed::Extension for SuperColliderExtension {
                 }
             }
         }
-        // Default to verbose launcher logging unless the user overrides.
-        set_default_env(&mut env, "SC_LAUNCHER_DEBUG_LOGS", "1");
-        set_default_env(&mut env, "SC_LAUNCHER_DEBUG", "1");
-
         let cmd = zed::Command {
             command: cmd_path.take().unwrap(),
             args,
