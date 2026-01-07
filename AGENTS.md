@@ -54,21 +54,36 @@ bd sync               # Sync with git
 
 ## Session Completion
 
-**When ending a work session**, complete ALL steps. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, complete ALL steps. Work is NOT complete until changes are pushed or PR is created.
 
 1. **File issues** for remaining work
 2. **Run quality gates** (if code changed) - tests, linters, builds
 3. **Update issue status** - close finished, update in-progress
-4. **PUSH TO REMOTE**:
+4. **COMMIT CHANGES**:
    ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
+   /smart-commit
    ```
-5. **Hand off** - provide context for next session
+   This skill will automatically:
+   - Analyze change significance (files, lines, core files)
+   - Create a PR if changes are significant (10+ files, 100+ lines, or core files modified)
+   - Commit and push directly for minor changes
+   - See `.claude-pr-policy.json` for thresholds
+
+   **Manual alternatives** (if needed):
+   ```bash
+   /pr              # Force PR creation
+   /commit          # Force direct commit/push
+   ```
+
+5. **Verify completion**:
+   ```bash
+   git status  # MUST show "up to date with origin" OR "branch has no upstream" (if PR created)
+   ```
+
+6. **Hand off** - provide context for next session
 
 **Rules:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing
-- If push fails, resolve and retry
+- Work is NOT complete until pushed to remote or PR is created
+- NEVER stop before pushing/PR
+- If push/PR fails, resolve and retry
+- `/smart-commit` is preferred for automatic decision-making
