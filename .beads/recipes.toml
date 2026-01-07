@@ -1,0 +1,8 @@
+[recipes]
+  [recipes.opencode]
+    name = "opencode"
+    path = ".opencode/plugin/bd-prime.ts"
+    type = "file"
+    description = ""
+    global_path = ""
+    project_path = ""
