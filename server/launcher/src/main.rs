@@ -1,5 +1,13 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, ValueEnum};
+use lsp_types::{
+    CodeActionKind, CodeActionProviderCapability, CodeLensOptions, CompletionOptions,
+    CompletionOptionsCompletionItem, DeclarationCapability, ExecuteCommandOptions,
+    FoldingRangeProviderCapability, HoverProviderCapability, ImplementationProviderCapability,
+    InitializeResult, OneOf, SaveOptions, SelectionRangeProviderCapability, ServerCapabilities,
+    ServerInfo, SignatureHelpOptions, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, TextDocumentSyncSaveOptions, WorkDoneProgressOptions,
+};
 use serde_json::Value as JsonValue;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
@@ -15,6 +23,9 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 use tiny_http::{Method, Response, Server};
+
+mod constants;
+use constants::*;
 
 fn timestamp() -> String {
     use libc::{localtime_r, strftime, time_t, tm};
@@ -61,6 +72,33 @@ pub enum Mode {
     Lsp,
 }
 
+/// Type-safe request ID representation supporting both number and string IDs
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub enum RequestId {
+    Number(i64),
+    String(String),
+}
+
+impl RequestId {
+    /// Extract a RequestId from a JSON value
+    pub fn from_json(value: &JsonValue) -> Option<Self> {
+        match value {
+            JsonValue::Number(n) => n.as_i64().map(RequestId::Number),
+            JsonValue::String(s) => Some(RequestId::String(s.clone())),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for RequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RequestId::Number(n) => write!(f, "{}", n),
+            RequestId::String(s) => write!(f, "\"{}\"", s),
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "sc_launcher", version, about = "Launch sclang LSP for Zed")]
 pub struct Args {
@@ -81,7 +119,7 @@ pub struct Args {
     pub log_level: Option<String>,
 
     /// HTTP server port for eval requests (0 = auto-assign, default 57130)
-    #[arg(long, default_value_t = 57130)]
+    #[arg(long, default_value_t = DEFAULT_HTTP_PORT)]
     pub http_port: u16,
 }
 
@@ -397,15 +435,14 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         )
     })?;
     udp_receiver
-        .set_read_timeout(Some(Duration::from_millis(200)))
+        .set_read_timeout(Some(millis_to_duration(UDP_READ_TIMEOUT_MS)))
         .context("failed to set UDP receiver timeout")?;
 
     let (stdin_done_tx, stdin_done_rx) = mpsc::channel();
 
     // Track request IDs that we've already responded to from the launcher.
     // This prevents sclang's duplicate responses from overwriting ours.
-    // We use a String representation of the JSON id for simpler hashing.
-    let responded_ids: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let responded_ids: Arc<Mutex<HashSet<RequestId>>> = Arc::new(Mutex::new(HashSet::new()));
 
     // Start the stdin bridge IMMEDIATELY to capture the initialize request from Zed.
     // The bridge will buffer messages until sclang is ready.
@@ -444,7 +481,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     // Wait for sclang to report LSP READY, then signal the stdin bridge
     let mut waited_ms = 0u64;
-    let max_wait_ms = 60_000u64; // 60s
+    let max_wait_ms = LSP_READY_MAX_WAIT_MS;
     loop {
         if let Ok(()) = ready_rx.try_recv() {
             eprintln!("[sc_launcher] detected 'LSP READY' from sclang");
@@ -459,8 +496,8 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
             sclang_ready.store(true, Ordering::SeqCst);
             break;
         }
-        std::thread::sleep(Duration::from_millis(50));
-        waited_ms += 50;
+        std::thread::sleep(millis_to_duration(STARTUP_POLL_MS));
+        waited_ms += STARTUP_POLL_MS;
     }
     let mut stdin_closed = false;
 
@@ -496,7 +533,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
             let exit_status = graceful_shutdown_child(
                 &mut child,
                 &udp_sender,
-                Duration::from_secs(5),
+                GRACEFUL_SHUTDOWN_TIMEOUT,
                 run_token,
             )
                 .context("failed to shut down sclang after stdin closed")?;
@@ -504,7 +541,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
             break Ok(exit_status);
         }
 
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(millis_to_duration(MAIN_LOOP_POLL_MS));
     }?;
 
     shutdown.store(true, Ordering::SeqCst);
@@ -709,58 +746,125 @@ fn allocate_udp_ports() -> Result<Ports> {
 /// Create an LSP initialize response with server capabilities.
 /// This is sent immediately by the launcher so Zed doesn't timeout waiting for sclang.
 fn create_initialize_response(id: JsonValue) -> JsonValue {
-    serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": {
-            "capabilities": {
-                "textDocumentSync": {
-                    "openClose": true,
-                    "change": 2,  // Incremental
-                    "save": true
-                },
-                "completionProvider": {
-                    "triggerCharacters": [".", "(", "~"],
-                    "resolveProvider": false,
-                    "completionItem": {
-                        "labelDetailsSupport": true
-                    }
-                },
-                "signatureHelpProvider": {
-                    "triggerCharacters": ["("],
-                    "retriggerCharacters": [","]
-                },
-                "hoverProvider": true,
-                "definitionProvider": true,
-                "declarationProvider": true,
-                "implementationProvider": true,
-                "referencesProvider": true,
-                "selectionRangeProvider": {},
-                "foldingRangeProvider": {},
-                "codeLensProvider": {},
-                "codeActionProvider": {
-                    "codeActionKinds": ["source"]
-                },
-                "workspaceSymbolProvider": {},
-                "executeCommandProvider": {
-                    "commands": [
-                        "supercollider.eval",
-                        "supercollider.evaluateSelection",
-                        "supercollider.internal.bootServer",
-                        "supercollider.internal.rebootServer",
-                        "supercollider.internal.quitServer",
-                        "supercollider.internal.recompile",
-                        "supercollider.internal.cmdPeriod",
-                        "supercollider.internal.openPostLog"
-                    ]
-                }
+    let capabilities = ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
+            open_close: Some(true),
+            change: Some(TextDocumentSyncKind::INCREMENTAL),
+            will_save: None,
+            will_save_wait_until: None,
+            save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
+                include_text: None,
+            })),
+        })),
+        completion_provider: Some(CompletionOptions {
+            resolve_provider: Some(false),
+            trigger_characters: Some(vec![".".into(), "(".into(), "~".into()]),
+            all_commit_characters: None,
+            work_done_progress_options: WorkDoneProgressOptions {
+                work_done_progress: None,
             },
-            "serverInfo": {
-                "name": "sclang:LSPConnection",
-                "version": "0.1"
-            }
-        }
+            completion_item: Some(CompletionOptionsCompletionItem {
+                label_details_support: Some(true),
+            }),
+        }),
+        signature_help_provider: Some(SignatureHelpOptions {
+            trigger_characters: Some(vec!["(".into()]),
+            retrigger_characters: Some(vec![",".into()]),
+            work_done_progress_options: WorkDoneProgressOptions {
+                work_done_progress: None,
+            },
+        }),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        definition_provider: Some(OneOf::Left(true)),
+        declaration_provider: Some(DeclarationCapability::Simple(true)),
+        implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
+        references_provider: Some(OneOf::Left(true)),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+        code_lens_provider: Some(CodeLensOptions {
+            resolve_provider: None,
+        }),
+        code_action_provider: Some(CodeActionProviderCapability::Options(
+            lsp_types::CodeActionOptions {
+                code_action_kinds: Some(vec![CodeActionKind::SOURCE]),
+                work_done_progress_options: WorkDoneProgressOptions {
+                    work_done_progress: None,
+                },
+                resolve_provider: None,
+            },
+        )),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
+        execute_command_provider: Some(ExecuteCommandOptions {
+            commands: vec![
+                "supercollider.eval".into(),
+                "supercollider.evaluateSelection".into(),
+                "supercollider.internal.bootServer".into(),
+                "supercollider.internal.rebootServer".into(),
+                "supercollider.internal.quitServer".into(),
+                "supercollider.internal.recompile".into(),
+                "supercollider.internal.cmdPeriod".into(),
+                "supercollider.internal.openPostLog".into(),
+            ],
+            work_done_progress_options: WorkDoneProgressOptions {
+                work_done_progress: None,
+            },
+        }),
+        ..Default::default()
+    };
+
+    let result = InitializeResult {
+        capabilities,
+        server_info: Some(ServerInfo {
+            name: "sclang:LSPConnection".into(),
+            version: Some("0.1".into()),
+        }),
+    };
+
+    serde_json::json!({
+        "jsonrpc": JSONRPC_VERSION,
+        "id": id,
+        "result": result
     })
+}
+
+/// Create a typed LSP request with automatic JSON-RPC envelope
+fn create_lsp_request<P: serde::Serialize>(
+    id: u64,
+    method: &str,
+    params: P,
+) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": JSONRPC_VERSION,
+        "id": id,
+        "method": method,
+        "params": params
+    })
+}
+
+/// Create a typed LSP notification (no id field)
+fn create_lsp_notification<P: serde::Serialize>(
+    method: &str,
+    params: P,
+) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": JSONRPC_VERSION,
+        "method": method,
+        "params": params
+    })
+}
+
+/// Create a workspace/executeCommand request with type-safe arguments
+fn create_execute_command_request(
+    id: u64,
+    command: &str,
+    arguments: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    let params = lsp_types::ExecuteCommandParams {
+        command: command.to_string(),
+        arguments,
+        work_done_progress_params: Default::default(),
+    };
+    create_lsp_request(id, "workspace/executeCommand", params)
 }
 
 pub fn graceful_shutdown_child(
@@ -788,7 +892,7 @@ pub fn graceful_shutdown_child(
             Ok(None) => {}
             Err(err) => return Err(anyhow!("failed to poll sclang status: {err}")),
         }
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(millis_to_duration(SHUTDOWN_POLL_MS));
     }
 
     #[cfg(unix)]
@@ -803,7 +907,7 @@ pub fn graceful_shutdown_child(
         }
 
         let term_start = std::time::Instant::now();
-        while term_start.elapsed() < Duration::from_secs(2) {
+        while term_start.elapsed() < SIGTERM_GRACE_PERIOD {
             match child.try_wait() {
                 Ok(Some(status)) => return Ok(status),
                 Ok(None) => {}
@@ -814,7 +918,7 @@ pub fn graceful_shutdown_child(
                     ))
                 }
             }
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(millis_to_duration(SHUTDOWN_POLL_MS));
         }
     }
 
@@ -835,7 +939,7 @@ fn pump_stdin_to_udp(
     shutdown: Arc<AtomicBool>,
     done_tx: mpsc::Sender<()>,
     sclang_ready: Arc<AtomicBool>,
-    responded_ids: Arc<Mutex<HashSet<String>>>,
+    responded_ids: Arc<Mutex<HashSet<RequestId>>>,
 ) -> Result<()> {
     let verbose = verbose_logging_enabled();
     // Cache the most recent didOpen/didChange to resend after providers register.
@@ -961,7 +1065,7 @@ fn pump_stdin_to_udp(
                 }
 
                 // Try to receive a message (with timeout to allow checking ready flag)
-                match msg_rx.recv_timeout(Duration::from_millis(50)) {
+                match msg_rx.recv_timeout(millis_to_duration(STARTUP_POLL_MS)) {
                     Ok(message) => {
                         if ready_signaled {
                             if let Err(err) = send_with_retry(&sender_socket, &message) {
@@ -1096,11 +1200,12 @@ fn pump_stdin_to_udp(
 
                                         // Record that we've already responded to this request ID
                                         // so we can suppress sclang's duplicate response
-                                        let id_str = id.to_string();
-                                        if let Ok(mut set) = responded_ids.lock() {
-                                            set.insert(id_str.clone());
-                                            if verbose {
-                                                eprintln!("[sc_launcher] recorded responded id={} for suppression", id_str);
+                                        if let Some(request_id) = RequestId::from_json(id) {
+                                            if let Ok(mut set) = responded_ids.lock() {
+                                                set.insert(request_id.clone());
+                                                if verbose {
+                                                    eprintln!("[sc_launcher] recorded responded id={} for suppression", request_id);
+                                                }
                                             }
                                         }
 
@@ -1145,7 +1250,7 @@ fn pump_stdin_to_udp(
 fn pump_udp_to_stdout(
     socket: UdpSocket,
     shutdown: Arc<AtomicBool>,
-    responded_ids: Arc<Mutex<HashSet<String>>>,
+    responded_ids: Arc<Mutex<HashSet<RequestId>>>,
 ) -> Result<()> {
     let verbose = verbose_logging_enabled();
     let start = std::time::Instant::now();
@@ -1157,7 +1262,7 @@ fn pump_udp_to_stdout(
         // Force flush stderr immediately so this message appears
         let _ = std::io::stderr().flush();
     }
-    let mut dgram_buf = vec![0u8; 64 * 1024];
+    let mut dgram_buf = vec![0u8; UDP_BUFFER_SIZE];
     let mut stdout = io::stdout();
 
     // Accumulator for potentially fragmented UDP messages coming from sclang.
@@ -1272,15 +1377,16 @@ fn pump_udp_to_stdout(
                         let mut should_suppress = false;
                         if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
                             if let Some(id) = json.get("id") {
-                                let id_str = id.to_string();
-                                if let Ok(set) = responded_ids.lock() {
-                                    if set.contains(&id_str) {
-                                        should_suppress = true;
-                                        if verbose {
-                                            eprintln!(
-                                                "[sc_launcher] SUPPRESSING duplicate response for id={} (already responded from launcher)",
-                                                id_str
-                                            );
+                                if let Some(request_id) = RequestId::from_json(id) {
+                                    if let Ok(set) = responded_ids.lock() {
+                                        if set.contains(&request_id) {
+                                            should_suppress = true;
+                                            if verbose {
+                                                eprintln!(
+                                                    "[sc_launcher] SUPPRESSING duplicate response for id={} (already responded from launcher)",
+                                                    request_id
+                                                );
+                                            }
                                         }
                                     }
                                 }
@@ -1382,14 +1488,10 @@ fn pump_udp_to_stdout(
 
 fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
     use std::io::ErrorKind;
-    const RETRY_SLEEP_MS: u64 = 50;
-    const MAX_RETRY_MS: u64 = 90_000;
-    // Match LanguageServer.quark's maxSize for UDP chunking
-    const MAX_CHUNK_SIZE: usize = 6000;
     let verbose = verbose_logging_enabled();
 
     let mut attempts = 0usize;
-    let max_attempts = (MAX_RETRY_MS / RETRY_SLEEP_MS) as usize;
+    let max_attempts = max_retry_attempts();
 
     // Log what we're sending (extract method if possible)
     if verbose {
@@ -1411,7 +1513,7 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
     }
 
     // If message fits in one packet, send directly
-    if message.len() <= MAX_CHUNK_SIZE {
+    if message.len() <= MAX_UDP_CHUNK_SIZE {
         loop {
             match socket.send(message) {
                 Ok(bytes) if bytes == message.len() => return Ok(()),
@@ -1440,7 +1542,7 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
                             ),
                         ));
                     }
-                    std::thread::sleep(Duration::from_millis(RETRY_SLEEP_MS));
+                    std::thread::sleep(millis_to_duration(RETRY_SLEEP_MS));
                     attempts += 1;
                     continue;
                 }
@@ -1454,13 +1556,13 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
         eprintln!(
             "[sc_launcher] chunking large message ({} bytes) into {} chunks",
             message.len(),
-            (message.len() + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE
+            (message.len() + MAX_UDP_CHUNK_SIZE - 1) / MAX_UDP_CHUNK_SIZE
         );
     }
 
     let mut offset = 0;
     while offset < message.len() {
-        let end = (offset + MAX_CHUNK_SIZE).min(message.len());
+        let end = (offset + MAX_UDP_CHUNK_SIZE).min(message.len());
         let chunk = &message[offset..end];
 
         loop {
@@ -1487,7 +1589,7 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
                             format!("connection refused after {} retries: {err}", attempts + 1),
                         ));
                     }
-                    std::thread::sleep(Duration::from_millis(RETRY_SLEEP_MS));
+                    std::thread::sleep(millis_to_duration(RETRY_SLEEP_MS));
                     attempts += 1;
                     continue;
                 }
@@ -1496,7 +1598,7 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
         }
         offset = end;
         // Small delay between chunks to avoid overwhelming the receiver
-        std::thread::sleep(Duration::from_micros(100));
+        std::thread::sleep(Duration::from_micros(UDP_CHUNK_DELAY_US));
     }
 
     Ok(())
@@ -1585,7 +1687,7 @@ fn ensure_quark_present() -> bool {
 }
 
 /// Global request ID counter for launcher-originated LSP requests.
-static NEXT_LSP_REQUEST_ID: AtomicU64 = AtomicU64::new(1_000_000);
+static NEXT_LSP_REQUEST_ID: AtomicU64 = AtomicU64::new(INITIAL_LSP_REQUEST_ID);
 
 fn next_lsp_request_id() -> u64 {
     NEXT_LSP_REQUEST_ID.fetch_add(1, Ordering::SeqCst)
@@ -1696,15 +1798,11 @@ fn handle_http_request(
 
         // Send workspace/executeCommand to sclang via UDP
         let request_id = next_lsp_request_id();
-        let lsp_request = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": "workspace/executeCommand",
-            "params": {
-                "command": "supercollider.eval",
-                "arguments": [body]
-            }
-        });
+        let lsp_request = create_execute_command_request(
+            request_id,
+            "supercollider.eval",
+            vec![serde_json::json!(body)],
+        );
 
         match send_lsp_payload(udp_socket, &lsp_request) {
             Ok(_) => {
@@ -1782,15 +1880,7 @@ fn send_command(
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let request_id = next_lsp_request_id();
     let args: Vec<serde_json::Value> = arguments.iter().map(|s| serde_json::json!(s)).collect();
-    let lsp_request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "method": "workspace/executeCommand",
-        "params": {
-            "command": command,
-            "arguments": args
-        }
-    });
+    let lsp_request = create_execute_command_request(request_id, command, args);
 
     match send_lsp_payload(udp_socket, &lsp_request) {
         Ok(_) => {
@@ -1834,21 +1924,13 @@ fn send_command(
 
 fn request_lsp_shutdown(udp_socket: &UdpSocket) {
     let shutdown_id = next_lsp_request_id();
-    let shutdown_request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": shutdown_id,
-        "method": "shutdown",
-        "params": {}
-    });
+    let shutdown_request = create_lsp_request(shutdown_id, "shutdown", serde_json::json!({}));
 
     if let Err(err) = send_lsp_payload(udp_socket, &shutdown_request) {
         eprintln!("[sc_launcher] failed to send shutdown request: {}", err);
     }
 
-    let exit_notification = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "exit"
-    });
+    let exit_notification = create_lsp_notification("exit", serde_json::json!({}));
 
     if let Err(err) = send_lsp_payload(udp_socket, &exit_notification) {
         eprintln!("[sc_launcher] failed to send exit notification: {}", err);
