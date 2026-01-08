@@ -413,14 +413,16 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     // Wait for LSP READY signal from sclang stdout before pumping stdin to UDP
     let (ready_tx, ready_rx) = mpsc::channel();
+    // Track ready count for recompile detection (increments each time LSP READY is seen)
+    let ready_count: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
     let stdout_handle = child
         .stdout
         .take()
-        .map(|stream| log_child_stream("sclang stdout", stream, Some(ready_tx.clone())));
+        .map(|stream| log_child_stream("sclang stdout", stream, Some(ready_tx.clone()), Some(ready_count.clone())));
     let stderr_handle = child
         .stderr
         .take()
-        .map(|stream| log_child_stream("sclang stderr", stream, None));
+        .map(|stream| log_child_stream("sclang stderr", stream, None, None));
 
     let udp_sender = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
         .context("failed to bind UDP sender socket")?;
@@ -458,11 +460,12 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         let done_tx = stdin_done_tx.clone();
         let ready_flag = sclang_ready.clone();
         let responded = responded_ids.clone();
+        let recompile_count = ready_count.clone();
         eprintln!("[sc_launcher] spawning stdin->udp thread NOW");
         let _ = std::io::stderr().flush();
         let handle = thread::Builder::new()
             .name("stdin->udp".into())
-            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag, responded))
+            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag, responded, recompile_count))
             .context("failed to spawn stdin->udp bridge thread")?;
         eprintln!("[sc_launcher] stdin->udp thread spawned successfully");
         let _ = std::io::stderr().flush();
@@ -620,6 +623,7 @@ fn log_child_stream<R>(
     label: &'static str,
     stream: R,
     ready_signal: Option<mpsc::Sender<()>>,
+    ready_count: Option<Arc<AtomicU64>>,
 ) -> thread::JoinHandle<()>
 where
     R: Read + Send + 'static,
@@ -672,9 +676,14 @@ where
                         }
                     }
 
-                    if let Some(tx) = &ready_signal {
-                        if label == "sclang stdout" && trimmed.contains("***LSP READY***") {
+                    if label == "sclang stdout" && trimmed.contains("***LSP READY***") {
+                        if let Some(tx) = &ready_signal {
                             let _ = tx.send(());
+                        }
+                        // Increment ready count for recompile detection
+                        if let Some(ref counter) = ready_count {
+                            let old_count = counter.fetch_add(1, Ordering::SeqCst);
+                            eprintln!("[sc_launcher] LSP READY count: {} -> {}", old_count, old_count + 1);
                         }
                     }
                 }
@@ -941,11 +950,14 @@ fn pump_stdin_to_udp(
     done_tx: mpsc::Sender<()>,
     sclang_ready: Arc<AtomicBool>,
     responded_ids: Arc<Mutex<HashSet<RequestId>>>,
+    ready_count: Arc<AtomicU64>,
 ) -> Result<()> {
     let verbose = verbose_logging_enabled();
     // Cache the most recent didOpen/didChange to resend after providers register.
     let cached_did_open: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
     let cached_did_change: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+    // Cache initialize request to resend after recompile
+    let cached_initialize: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
 
     let mut stdin_log = if debug_file_logs_enabled() {
         std::fs::OpenOptions::new()
@@ -993,6 +1005,8 @@ fn pump_stdin_to_udp(
     let sender_shutdown = shutdown.clone();
     let resend_did_open = cached_did_open.clone();
     let resend_did_change = cached_did_change.clone();
+    let resend_initialize = cached_initialize.clone();
+    let recompile_counter = ready_count.clone();
     if verbose {
         eprintln!("[sc_launcher] pump_stdin_to_udp: about to spawn sender thread");
         let _ = std::io::stderr().flush();
@@ -1007,8 +1021,41 @@ fn pump_stdin_to_udp(
             }
             let mut pending_messages: Vec<Vec<u8>> = Vec::new();
             let mut ready_signaled = false;
+            let mut last_ready_count: u64 = 0;
 
             loop {
+                // Check for recompile (ready count increased beyond initial)
+                let current_ready_count = recompile_counter.load(Ordering::SeqCst);
+                if current_ready_count > last_ready_count {
+                    if last_ready_count > 0 {
+                        // This is a recompile (not the initial ready)
+                        eprintln!("[sc_launcher] RECOMPILE DETECTED (ready count {} -> {}), re-sending initialize",
+                            last_ready_count, current_ready_count);
+                        // Re-send cached initialize
+                        if let Some(init_msg) = resend_initialize.lock().ok().and_then(|m| m.clone()) {
+                            eprintln!("[sc_launcher] re-sending cached initialize after recompile");
+                            if let Err(err) = send_with_retry(&sender_socket, &init_msg) {
+                                eprintln!("[sc_launcher] failed to re-send initialize: {err}");
+                            }
+                        }
+                        // Re-send cached didOpen
+                        if let Some(open_msg) = resend_did_open.lock().ok().and_then(|m| m.clone()) {
+                            eprintln!("[sc_launcher] re-sending cached didOpen after recompile");
+                            if let Err(err) = send_with_retry(&sender_socket, &open_msg) {
+                                eprintln!("[sc_launcher] failed to re-send didOpen: {err}");
+                            }
+                        }
+                        // Re-send cached didChange
+                        if let Some(change_msg) = resend_did_change.lock().ok().and_then(|m| m.clone()) {
+                            eprintln!("[sc_launcher] re-sending cached didChange after recompile");
+                            if let Err(err) = send_with_retry(&sender_socket, &change_msg) {
+                                eprintln!("[sc_launcher] failed to re-send didChange: {err}");
+                            }
+                        }
+                    }
+                    last_ready_count = current_ready_count;
+                }
+
                 // Check for ready signal
                 if !ready_signaled && sender_ready.load(Ordering::SeqCst) {
                     ready_signaled = true;
@@ -1212,6 +1259,11 @@ fn pump_stdin_to_udp(
 
                                         // Still forward to sclang so it can set up its state
                                         // but we've already responded to Zed
+
+                                        // Cache initialize for re-sending after recompile
+                                        if let Ok(mut slot) = cached_initialize.lock() {
+                                            *slot = Some(message.clone());
+                                        }
                                     }
                                 }
                             }
