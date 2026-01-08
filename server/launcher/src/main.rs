@@ -798,7 +798,13 @@ where
                     // Write stdout to post window log file (filter out verbose LSP debug messages)
                     if log_to_file {
                         if let Some(ref mut f) = post_file {
-                            let _ = writeln!(f, "[{}] [{label}] {}", timestamp(), trimmed);
+                            // Skip LSP protocol noise - only show actual post window content
+                            let is_lsp_noise = trimmed.contains("[LANGUAGESERVER.QUARK]")
+                                || trimmed.starts_with("{\"")  // JSON responses
+                                || trimmed.starts_with("Content-Length:");
+                            if !is_lsp_noise {
+                                let _ = writeln!(f, "{}", trimmed);
+                            }
                         }
                     }
 

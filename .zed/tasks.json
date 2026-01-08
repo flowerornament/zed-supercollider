@@ -1,11 +1,8 @@
 [
   {
     "label": "SuperCollider: Post Window",
-    "command": "bash",
-    "args": [
-      "-lc",
-      "tail -f \"${SC_TMP_DIR:-${TMPDIR:-/tmp}}/sclang_post.log\""
-    ],
+    "command": "tail",
+    "args": ["-f", "/tmp/sclang_post.log"],
     "reveal": "always",
     "use_new_terminal": true,
     "hide": "never"
@@ -32,7 +29,7 @@
       "sc-eval"
     ],
     "reveal": "never",
-    "hide": "never",
+    "hide": "on_success",
     "use_new_terminal": false
   },
   {
@@ -53,8 +50,8 @@
       "-lc",
       "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/boot\"); printf \"HTTP %s\\n\" \"$HTTP\""
     ],
-    "reveal": "always",
-    "hide": "never",
+    "reveal": "never",
+    "hide": "on_success",
     "use_new_terminal": false
   },
   {
@@ -64,8 +61,8 @@
       "-lc",
       "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/stop\"); printf \"HTTP %s\\n\" \"$HTTP\""
     ],
-    "reveal": "always",
-    "hide": "never",
+    "reveal": "never",
+    "hide": "on_success",
     "use_new_terminal": false
   },
   {
@@ -75,8 +72,8 @@
       "-lc",
       "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/recompile\"); printf \"HTTP %s\\n\" \"$HTTP\""
     ],
-    "reveal": "always",
-    "hide": "never",
+    "reveal": "never",
+    "hide": "on_success",
     "use_new_terminal": false
   },
   {
@@ -86,8 +83,8 @@
       "-lc",
       "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/quit\"); printf \"HTTP %s\\n\" \"$HTTP\""
     ],
-    "reveal": "always",
-    "hide": "never",
+    "reveal": "never",
+    "hide": "on_success",
     "use_new_terminal": false
   },
   {
