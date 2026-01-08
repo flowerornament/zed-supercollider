@@ -174,6 +174,115 @@ pub fn remove_pid_file() {
     }
 }
 
+/// Clean up orphaned sclang processes from previous launcher instances.
+/// Called at startup to prevent accumulation of zombie processes.
+pub fn cleanup_orphaned_processes() {
+    let path = pid_file_path();
+
+    // Check PID file for stale process
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                let launcher_pid = json.get("launcher_pid").and_then(|v| v.as_u64());
+                let sclang_pid = json.get("sclang_pid").and_then(|v| v.as_u64());
+
+                if let (Some(launcher_pid), Some(sclang_pid)) = (launcher_pid, sclang_pid) {
+                    // Check if the old launcher is still running
+                    let launcher_alive = is_process_alive(launcher_pid as u32);
+
+                    if !launcher_alive {
+                        // Old launcher is dead - check if sclang is orphaned
+                        if is_process_alive(sclang_pid as u32) {
+                            eprintln!(
+                                "[sc_launcher] found orphaned sclang (pid={}) from dead launcher (pid={}), killing",
+                                sclang_pid, launcher_pid
+                            );
+                            kill_process(sclang_pid as u32);
+                        }
+                        // Remove stale PID file
+                        let _ = std::fs::remove_file(&path);
+                    } else {
+                        eprintln!(
+                            "[sc_launcher] warning: another launcher (pid={}) appears to be running",
+                            launcher_pid
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Also scan for any orphaned sclang processes (PPID=1) with our command signature
+    #[cfg(unix)]
+    cleanup_orphaned_sclang_by_ppid();
+}
+
+/// Check if a process is alive
+fn is_process_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        // kill(pid, 0) checks if process exists without sending a signal
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+/// Kill a process by PID
+fn kill_process(pid: u32) {
+    #[cfg(unix)]
+    {
+        unsafe {
+            // Try SIGTERM first
+            libc::kill(pid as i32, libc::SIGTERM);
+        }
+        // Give it a moment to exit
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // Check if still alive, use SIGKILL if needed
+        if is_process_alive(pid) {
+            eprintln!("[sc_launcher] sclang {} didn't respond to SIGTERM, using SIGKILL", pid);
+            unsafe {
+                libc::kill(pid as i32, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+/// Scan for orphaned sclang processes (PPID=1) and kill them
+#[cfg(unix)]
+fn cleanup_orphaned_sclang_by_ppid() {
+    use std::process::Command;
+
+    // Use ps to find sclang processes with PPID=1 (orphaned, reparented to init)
+    let output = Command::new("ps")
+        .args(["-eo", "pid,ppid,comm"])
+        .output();
+
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines().skip(1) {
+            // Parse: "  PID  PPID COMM"
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                if let (Ok(pid), Ok(ppid)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                    let comm = parts[2..].join(" ");
+                    // Check if it's an orphaned sclang (PPID=1 means parent died)
+                    if ppid == 1 && comm.contains("sclang") {
+                        eprintln!(
+                            "[sc_launcher] found orphaned sclang process (pid={}, ppid=1), killing",
+                            pid
+                        );
+                        kill_process(pid);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Construct an sclang command, forcing the appropriate architecture slice on macOS.
 fn make_sclang_command(path: &str) -> Command {
     #[cfg(target_os = "macos")]
@@ -292,6 +401,9 @@ fn main() -> Result<()> {
 }
 
 pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
+    // Clean up any orphaned sclang processes from previous launcher instances
+    cleanup_orphaned_processes();
+
     let run_token = RUN_TOKEN.fetch_add(1, Ordering::SeqCst);
     if IS_RUNNING.swap(true, Ordering::SeqCst) {
         eprintln!(
