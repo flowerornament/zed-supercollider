@@ -1,46 +1,161 @@
-# SuperCollider Zed Extension
+# SuperCollider Extension for Zed
 
-Zed extension for SuperCollider with LSP support and HTTP-based code evaluation.
+> **Alpha Software** - This extension is under active development. Expect bugs, breaking changes, and rough edges. For adventurous users who want to help shape the project.
 
-## Current State
+Zed extension for [SuperCollider](https://supercollider.github.io/) with LSP support and HTTP-based code evaluation.
 
-Working: Navigation, code evaluation, server control
+## Features
 
-See `.ai/context.md` for details
+- **Language Server Protocol**: Go-to-definition, find references, hover documentation, completions
+- **Code Evaluation**: Play buttons on code blocks, fire-and-forget eval via HTTP
+- **Server Control**: Boot, stop, recompile, quit via Zed tasks
+- **Syntax Highlighting**: Tree-sitter grammar with SuperCollider-specific queries
 
-## Setup
+## Prerequisites
 
-1) Install LanguageServer.quark in SuperCollider: `Quarks.install("LanguageServer");`
-2) Build the launcher: `cd server/launcher && cargo build --release` (or place `sc_launcher` on PATH)
-3) Configure Zed settings (sample):
+- **macOS** (primary supported platform)
+- **SuperCollider** installed ([download](https://supercollider.github.io/downloads))
+- **Zed** editor ([download](https://zed.dev/))
+- **Rust** via [rustup](https://rustup.rs/) (required for building dev extensions)
+  - Homebrew-installed Rust will not work with Zed dev extensions
+
+## Installation (Development Mode)
+
+This is the current installation method. Distribution will simplify in the future.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/flowerornament/zed-supercollider.git
+cd zed-supercollider
+```
+
+### 2. Install the Rust WASM target
+
+```bash
+rustup target add wasm32-wasip1
+```
+
+### 3. Build the launcher
+
+```bash
+cd server/launcher
+cargo build --release
+cd ../..
+```
+
+This creates `server/launcher/target/release/sc_launcher`.
+
+### 4. Load the extension in Zed
+
+1. Open Zed
+2. Open the command palette (`Cmd+Shift+P`)
+3. Run `zed: install dev extension`
+4. Select the `zed-supercollider` directory
+
+The extension will compile and load. You'll see "SuperCollider" in your extensions list.
+
+### 5. Configure Zed settings
+
+Open Zed settings (`Cmd+,`) and add:
+
 ```json
 {
   "lsp": {
     "supercollider": {
       "binary": {
-        "path": "/path/to/sc_launcher",
+        "path": "/absolute/path/to/zed-supercollider/server/launcher/target/release/sc_launcher",
         "arguments": ["--mode", "lsp", "--http-port", "57130"]
       }
     }
- }
+  }
 }
 ```
-4) Copy `.zed/tasks.json` into your SuperCollider workspace (or merge into an existing `.zed/tasks.json`). The `sc-eval` tag drives the play buttons via HTTP `/eval`, and the file includes Post Window/Stop/Boot/Recompile/Quit/Kill helpers. To copy into the current directory: `scripts/install-tasks.sh`.
-5) Optional: set `SC_HTTP_PORT` for task HTTP calls and `SC_TMP_DIR` for log location (defaults to TMPDIR).
-   - For verbose stdout/stderr logging from the launcher, set `SC_LAUNCHER_DEBUG=1` (file logs remain gated by `SC_LAUNCHER_DEBUG_LOGS`).
+
+Replace `/absolute/path/to/zed-supercollider` with your actual clone location.
+
+### 6. Install tasks (optional but recommended)
+
+Copy the task definitions for code evaluation and server control:
+
+```bash
+scripts/install-tasks.sh
+```
+
+Or manually copy `.zed/tasks.json` to your SuperCollider workspace.
 
 ## Usage
 
-- Use the play button (parenthesized or `{}` function blocks) or `SuperCollider: Evaluate` task for code eval (HTTP, fire-and-forget; results appear in the Post Window).
-- Control tasks (`Stop/Boot/Recompile/Quit`) hit `http://127.0.0.1:${SC_HTTP_PORT:-57130}`.
-- Tail the Post Window via the `SuperCollider: Post Window` task (logs in `${SC_TMP_DIR:-${TMPDIR:-/tmp}}`).
+### Opening SuperCollider files
+
+Open any `.sc` or `.scd` file. The extension activates automatically.
+
+### Code evaluation
+
+- Click the **play button** on parenthesized blocks `(...)` or function blocks `{...}`
+- Results appear in the Post Window (see below)
+
+### Server control
+
+Use Zed tasks (`Cmd+Shift+R`) for:
+- **SuperCollider: Boot** - Start the audio server
+- **SuperCollider: Stop** - Stop all sounds (CmdPeriod)
+- **SuperCollider: Recompile** - Recompile the class library
+- **SuperCollider: Quit** - Quit sclang
+- **SuperCollider: Post Window** - Tail the output log
+
+### LSP features
+
+- **Hover** over symbols for documentation
+- **Go to Definition** (`Cmd+Click` or `F12`)
+- **Find References** (`Shift+F12`)
+- **Completions** as you type
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SC_HTTP_PORT` | HTTP port for eval/control | `57130` |
+| `SC_TMP_DIR` | Log file directory | `$TMPDIR` or `/tmp` |
+| `SC_LAUNCHER_DEBUG` | Enable verbose logging | unset |
 
 ## Troubleshooting
 
-- Run `scripts/validate-config.sh` to enforce the minimal language config.
-- Use the slash command `supercollider-check-setup` in Zed to probe launcher availability.
-- Check `sclang_post.log` for runtime errors; log location respects `SC_TMP_DIR`/`TMPDIR`.
+### Validate configuration
 
-## Developer Docs
+```bash
+scripts/validate-config.sh
+```
 
-Contributor-facing notes live in `.ai/` (start with `.ai/context.md`).
+### Check logs
+
+Post window output: `${SC_TMP_DIR:-$TMPDIR}/sclang_post.log`
+
+```bash
+tail -f /tmp/sclang_post.log
+```
+
+### Test the HTTP API
+
+```bash
+curl -X POST -d "1 + 1" http://127.0.0.1:57130/eval
+curl http://127.0.0.1:57130/health
+```
+
+### Common issues
+
+- **Extension won't compile**: Ensure Rust is installed via rustup, not homebrew
+- **LSP not starting**: Check that the launcher path in settings is correct and absolute
+- **No play buttons**: Ensure `.zed/tasks.json` is present in your workspace
+
+## Future
+
+The current installation method requires building from source. Distribution will change to make installation simpler (e.g., direct installation from Zed's extension gallery).
+
+## Contributing
+
+Developer documentation lives in `.ai/` (start with `.ai/context.md`).
+
+## License
+
+[MIT](LICENSE)
