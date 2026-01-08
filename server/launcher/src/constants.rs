@@ -53,6 +53,15 @@ pub const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 /// SIGTERM grace period before forceful termination
 pub const SIGTERM_GRACE_PERIOD: Duration = Duration::from_secs(2);
 
+/// Maximum time to wait for sclang ready during shutdown flush (milliseconds)
+pub const SHUTDOWN_FLUSH_WAIT_MS: u64 = 2000;
+
+/// Number of retry attempts for LSP shutdown request
+pub const SHUTDOWN_RETRY_ATTEMPTS: u32 = 3;
+
+/// Delay between shutdown retry attempts (milliseconds)
+pub const SHUTDOWN_RETRY_DELAY_MS: u64 = 100;
+
 // ============================================================================
 // LSP & Request ID Constants
 // ============================================================================

@@ -533,7 +533,11 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
         if stdin_done_rx.try_recv().is_ok() {
             stdin_closed = true;
-            shutdown.store(true, Ordering::SeqCst);
+            eprintln!("[sc_launcher] stdin closed, initiating graceful shutdown");
+
+            // First, perform graceful shutdown of sclang (sends LSP shutdown/exit)
+            // This gives sclang time to process any final requests before we signal
+            // other threads to stop
             let exit_status = graceful_shutdown_child(
                 &mut child,
                 &udp_sender,
@@ -541,6 +545,10 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
                 run_token,
             )
                 .context("failed to shut down sclang after stdin closed")?;
+
+            // AFTER sclang has exited, signal threads to stop
+            // This ensures the sender thread can deliver final messages while sclang is alive
+            shutdown.store(true, Ordering::SeqCst);
             release_child_state(&child_state);
             break Ok(exit_status);
         }
@@ -883,22 +891,53 @@ pub fn graceful_shutdown_child(
     timeout: Duration,
     run_token: u64,
 ) -> Result<std::process::ExitStatus> {
+    let pid = child.id();
     eprintln!(
-        "[sc_launcher] run token {}: stdin closed; requesting LSP shutdown for pid {} (timeout {:?})",
-        run_token,
-        child.id(),
-        timeout
+        "[sc_launcher] run token {}: initiating graceful shutdown for pid {} (timeout {:?})",
+        run_token, pid, timeout
     );
-    request_lsp_shutdown(udp_socket);
 
+    // Attempt LSP shutdown with retries
+    let mut shutdown_sent = false;
+    for attempt in 1..=SHUTDOWN_RETRY_ATTEMPTS {
+        match request_lsp_shutdown_with_result(udp_socket) {
+            Ok(_) => {
+                shutdown_sent = true;
+                eprintln!(
+                    "[sc_launcher] LSP shutdown/exit sent successfully (attempt {})",
+                    attempt
+                );
+                break;
+            }
+            Err(e) => {
+                eprintln!(
+                    "[sc_launcher] LSP shutdown attempt {} failed: {}",
+                    attempt, e
+                );
+                if attempt < SHUTDOWN_RETRY_ATTEMPTS {
+                    thread::sleep(millis_to_duration(SHUTDOWN_RETRY_DELAY_MS));
+                }
+            }
+        }
+    }
+
+    if !shutdown_sent {
+        eprintln!("[sc_launcher] WARNING: could not send LSP shutdown, will rely on SIGTERM");
+    }
+
+    // Close sclang's stdin to signal EOF
     if let Some(stdin) = child.stdin.take() {
         drop(stdin);
     }
 
+    // Wait for graceful exit
     let start = std::time::Instant::now();
     while start.elapsed() < timeout {
         match child.try_wait() {
-            Ok(Some(status)) => return Ok(status),
+            Ok(Some(status)) => {
+                eprintln!("[sc_launcher] sclang exited gracefully with {}", status);
+                return Ok(status);
+            }
             Ok(None) => {}
             Err(err) => return Err(anyhow!("failed to poll sclang status: {err}")),
         }
@@ -1127,10 +1166,45 @@ fn pump_stdin_to_udp(
                         // Continue checking ready flag
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        // Reader thread closed, flush any remaining and exit
-                        if !pending_messages.is_empty() && ready_signaled {
-                            for msg in pending_messages.drain(..) {
-                                let _ = send_with_retry(&sender_socket, &msg);
+                        // Reader thread closed - handle shutdown gracefully
+                        eprintln!(
+                            "[sc_launcher] sender thread: channel disconnected, {} pending messages",
+                            pending_messages.len()
+                        );
+
+                        if !pending_messages.is_empty() {
+                            if ready_signaled {
+                                // sclang is ready, flush all pending messages
+                                eprintln!(
+                                    "[sc_launcher] flushing {} pending messages before shutdown",
+                                    pending_messages.len()
+                                );
+                                for msg in pending_messages.drain(..) {
+                                    let _ = send_with_retry(&sender_socket, &msg);
+                                }
+                            } else {
+                                // sclang not ready - wait briefly for ready signal, then decide
+                                let deadline = std::time::Instant::now()
+                                    + millis_to_duration(SHUTDOWN_FLUSH_WAIT_MS);
+                                while std::time::Instant::now() < deadline {
+                                    if sender_ready.load(Ordering::SeqCst) {
+                                        eprintln!(
+                                            "[sc_launcher] sclang became ready during shutdown, flushing {} messages",
+                                            pending_messages.len()
+                                        );
+                                        for msg in pending_messages.drain(..) {
+                                            let _ = send_with_retry(&sender_socket, &msg);
+                                        }
+                                        break;
+                                    }
+                                    std::thread::sleep(millis_to_duration(STARTUP_POLL_MS));
+                                }
+                                if !pending_messages.is_empty() {
+                                    eprintln!(
+                                        "[sc_launcher] WARNING: dropping {} messages - sclang never became ready",
+                                        pending_messages.len()
+                                    );
+                                }
                             }
                         }
                         break;
@@ -1138,6 +1212,29 @@ fn pump_stdin_to_udp(
                 }
 
                 if sender_shutdown.load(Ordering::SeqCst) {
+                    // Drain any remaining messages from channel before exiting
+                    while let Ok(message) = msg_rx.try_recv() {
+                        if ready_signaled {
+                            let _ = send_with_retry(&sender_socket, &message);
+                        } else {
+                            pending_messages.push(message);
+                        }
+                    }
+                    // Final flush attempt if ready
+                    if ready_signaled && !pending_messages.is_empty() {
+                        eprintln!(
+                            "[sc_launcher] sender thread: flushing {} remaining messages on shutdown",
+                            pending_messages.len()
+                        );
+                        for msg in pending_messages.drain(..) {
+                            let _ = send_with_retry(&sender_socket, &msg);
+                        }
+                    } else if !pending_messages.is_empty() {
+                        eprintln!(
+                            "[sc_launcher] sender thread: dropping {} messages on shutdown (sclang not ready)",
+                            pending_messages.len()
+                        );
+                    }
                     break;
                 }
             }
@@ -1182,7 +1279,7 @@ fn pump_stdin_to_udp(
                 }
                 // Log incoming LSP method for debugging and handle initialize specially
                 let is_buffered = !sclang_ready.load(Ordering::SeqCst);
-                let mut should_forward = true;
+                let should_forward = true;
 
                 if let Ok(body_str) = std::str::from_utf8(&message) {
                     if let Some(body_start) = body_str.find("\r\n\r\n") {
@@ -1975,19 +2072,16 @@ fn send_command(
     }
 }
 
-fn request_lsp_shutdown(udp_socket: &UdpSocket) {
+/// Send LSP shutdown and exit requests, returning Result for retry handling
+fn request_lsp_shutdown_with_result(udp_socket: &UdpSocket) -> io::Result<()> {
     let shutdown_id = next_lsp_request_id();
     let shutdown_request = create_lsp_request(shutdown_id, "shutdown", serde_json::json!({}));
-
-    if let Err(err) = send_lsp_payload(udp_socket, &shutdown_request) {
-        eprintln!("[sc_launcher] failed to send shutdown request: {}", err);
-    }
+    send_lsp_payload(udp_socket, &shutdown_request)?;
 
     let exit_notification = create_lsp_notification("exit", serde_json::json!({}));
+    send_lsp_payload(udp_socket, &exit_notification)?;
 
-    if let Err(err) = send_lsp_payload(udp_socket, &exit_notification) {
-        eprintln!("[sc_launcher] failed to send exit notification: {}", err);
-    }
+    Ok(())
 }
 
 /// Find the path to the built-in scide_scqt directory containing the ScIDE Document class.
