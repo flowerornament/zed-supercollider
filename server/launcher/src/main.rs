@@ -21,7 +21,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tiny_http::{Method, Response, Server};
 
 mod constants;
@@ -401,6 +401,8 @@ fn main() -> Result<()> {
 }
 
 pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
+    let startup_start = Instant::now();
+
     // Clean up any orphaned sclang processes from previous launcher instances
     cleanup_orphaned_processes();
 
@@ -600,7 +602,11 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let max_wait_ms = LSP_READY_MAX_WAIT_MS;
     loop {
         if let Ok(()) = ready_rx.try_recv() {
-            eprintln!("[sc_launcher] detected 'LSP READY' from sclang");
+            let startup_elapsed = startup_start.elapsed();
+            eprintln!(
+                "[sc_launcher] detected 'LSP READY' from sclang (startup: {:.2?})",
+                startup_elapsed
+            );
             sclang_ready.store(true, Ordering::SeqCst);
             break;
         }
