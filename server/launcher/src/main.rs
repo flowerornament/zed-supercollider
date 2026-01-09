@@ -1052,11 +1052,14 @@ pub fn graceful_shutdown_child(
     timeout: Duration,
     run_token: u64,
 ) -> Result<std::process::ExitStatus> {
+    let verbose = verbose_logging_enabled();
     let pid = child.id();
-    eprintln!(
-        "[sc_launcher] run token {}: initiating graceful shutdown for pid {} (timeout {:?})",
-        run_token, pid, timeout
-    );
+    if verbose {
+        eprintln!(
+            "[sc_launcher] run token {}: initiating graceful shutdown for pid {} (timeout {:?})",
+            run_token, pid, timeout
+        );
+    }
 
     // Attempt LSP shutdown with retries
     let mut shutdown_sent = false;
@@ -1064,17 +1067,21 @@ pub fn graceful_shutdown_child(
         match request_lsp_shutdown_with_result(udp_socket) {
             Ok(_) => {
                 shutdown_sent = true;
-                eprintln!(
-                    "[sc_launcher] LSP shutdown/exit sent successfully (attempt {})",
-                    attempt
-                );
+                if verbose {
+                    eprintln!(
+                        "[sc_launcher] LSP shutdown/exit sent successfully (attempt {})",
+                        attempt
+                    );
+                }
                 break;
             }
             Err(e) => {
-                eprintln!(
-                    "[sc_launcher] LSP shutdown attempt {} failed: {}",
-                    attempt, e
-                );
+                if verbose {
+                    eprintln!(
+                        "[sc_launcher] LSP shutdown attempt {} failed: {}",
+                        attempt, e
+                    );
+                }
                 if attempt < SHUTDOWN_RETRY_ATTEMPTS {
                     thread::sleep(millis_to_duration(SHUTDOWN_RETRY_DELAY_MS));
                 }
@@ -1096,7 +1103,9 @@ pub fn graceful_shutdown_child(
     while start.elapsed() < timeout {
         match child.try_wait() {
             Ok(Some(status)) => {
-                eprintln!("[sc_launcher] sclang exited gracefully with {}", status);
+                if verbose {
+                    eprintln!("[sc_launcher] sclang exited gracefully with {}", status);
+                }
                 return Ok(status);
             }
             Ok(None) => {}
@@ -1108,10 +1117,12 @@ pub fn graceful_shutdown_child(
     #[cfg(unix)]
     {
         let pid = child.id();
-        eprintln!(
-            "[sc_launcher] run token {}: sending SIGTERM to sclang pid {}",
-            run_token, pid
-        );
+        if verbose {
+            eprintln!(
+                "[sc_launcher] run token {}: sending SIGTERM to sclang pid {}",
+                run_token, pid
+            );
+        }
         unsafe {
             libc::kill(pid as i32, libc::SIGTERM);
         }
@@ -1132,10 +1143,12 @@ pub fn graceful_shutdown_child(
         }
     }
 
-    eprintln!(
-        "[sc_launcher] run token {}: forcing sclang shutdown with kill",
-        run_token
-    );
+    if verbose {
+        eprintln!(
+            "[sc_launcher] run token {}: forcing sclang shutdown with kill",
+            run_token
+        );
+    }
     child
         .kill()
         .context("failed to kill sclang process after shutdown request")?;
