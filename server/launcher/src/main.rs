@@ -22,10 +22,15 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
-use tiny_http::{Method, Response, Server};
+// tiny_http types are used by http module
 
 mod constants;
+mod http;
+
 use constants::*;
+
+// Re-export for tests
+pub use http::run_http_server;
 
 fn timestamp() -> String {
     use libc::{localtime_r, strftime, time_t, tm};
@@ -134,7 +139,7 @@ fn debug_file_logs_enabled() -> bool {
     std::env::var("SC_LAUNCHER_DEBUG_LOGS").is_ok()
 }
 
-fn verbose_logging_enabled() -> bool {
+pub fn verbose_logging_enabled() -> bool {
     debug_file_logs_enabled() || std::env::var("SC_LAUNCHER_DEBUG").is_ok()
 }
 
@@ -652,7 +657,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         let port = args.http_port;
         thread::Builder::new()
             .name("http-server".into())
-            .spawn(move || run_http_server(port, udp, shutdown))
+            .spawn(move || http::run_http_server(port, udp, shutdown))
             .context("failed to spawn HTTP server thread")?
     };
 
@@ -1022,7 +1027,7 @@ fn create_lsp_notification<P: serde::Serialize>(
 }
 
 /// Create a workspace/executeCommand request with type-safe arguments
-fn create_execute_command_request(
+pub fn create_execute_command_request(
     id: u64,
     command: &str,
     arguments: Vec<serde_json::Value>,
@@ -2000,254 +2005,18 @@ fn ensure_quark_present() -> bool {
 /// Global request ID counter for launcher-originated LSP requests.
 static NEXT_LSP_REQUEST_ID: AtomicU64 = AtomicU64::new(INITIAL_LSP_REQUEST_ID);
 
-fn next_lsp_request_id() -> u64 {
+pub fn next_lsp_request_id() -> u64 {
     NEXT_LSP_REQUEST_ID.fetch_add(1, Ordering::SeqCst)
-}
-
-fn send_lsp_payload(udp_socket: &UdpSocket, payload: &serde_json::Value) -> io::Result<()> {
-    let lsp_json =
-        serde_json::to_string(payload).map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
-    let lsp_message = format!("Content-Length: {}\r\n\r\n{}", lsp_json.len(), lsp_json);
-
-    udp_socket.send(lsp_message.as_bytes()).map(|_| ())
-}
-
-/// Run the HTTP server for eval requests.
-/// Accepts POST /eval with code in the body, sends workspace/executeCommand to sclang.
-pub fn run_http_server(
-    port: u16,
-    udp_socket: UdpSocket,
-    shutdown: Arc<AtomicBool>,
-) -> Result<()> {
-    let verbose = verbose_logging_enabled();
-    let addr = format!("127.0.0.1:{}", port);
-    let server = match Server::http(&addr) {
-        Ok(s) => s,
-        Err(err) => {
-            eprintln!(
-                "[sc_launcher] failed to start HTTP server on {}: {}",
-                addr, err
-            );
-            return Err(anyhow!("HTTP server bind failed: {}", err));
-        }
-    };
-
-    if verbose {
-        eprintln!(
-            "[sc_launcher] HTTP eval server listening on http://{}",
-            addr
-        );
-    }
-
-    // Set a timeout so we can check shutdown flag periodically
-    server
-        .incoming_requests()
-        .into_iter()
-        .take_while(|_| !shutdown.load(Ordering::SeqCst))
-        .for_each(|mut request| {
-            let response = handle_http_request(&mut request, &udp_socket);
-            if let Err(err) = request.respond(response) {
-                eprintln!("[sc_launcher] failed to send HTTP response: {}", err);
-            }
-        });
-
-    if verbose {
-        eprintln!("[sc_launcher] HTTP server shutting down");
-    }
-    Ok(())
-}
-
-fn handle_http_request(
-    request: &mut tiny_http::Request,
-    udp_socket: &UdpSocket,
-) -> Response<std::io::Cursor<Vec<u8>>> {
-    let url = request.url().to_string();
-    let method = request.method().clone();
-
-    // CORS preflight
-    if method == Method::Options {
-        return Response::from_string("")
-            .with_status_code(204)
-            .with_header(
-                tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                    .expect("valid ASCII header"),
-            )
-            .with_header(
-                tiny_http::Header::from_bytes(
-                    &b"Access-Control-Allow-Methods"[..],
-                    &b"POST, OPTIONS"[..],
-                )
-                .expect("valid ASCII header"),
-            )
-            .with_header(
-                tiny_http::Header::from_bytes(
-                    &b"Access-Control-Allow-Headers"[..],
-                    &b"Content-Type"[..],
-                )
-                .expect("valid ASCII header"),
-            );
-    }
-
-    // Health check endpoint
-    if url == "/health" && method == Method::Get {
-        let body = r#"{"status":"ok"}"#;
-        return Response::from_string(body)
-            .with_status_code(200)
-            .with_header(
-                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                    .expect("valid ASCII header"),
-            );
-    }
-
-    // Eval endpoint
-    if url == "/eval" && method == Method::Post {
-        let mut body = String::new();
-        if let Err(err) = request.as_reader().read_to_string(&mut body) {
-            let error_body = format!(r#"{{"error":"failed to read body: {}"}}"#, err);
-            return Response::from_string(error_body)
-                .with_status_code(400)
-                .with_header(
-                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                        .expect("valid ASCII header"),
-                );
-        }
-
-        // Send workspace/executeCommand to sclang via UDP
-        let request_id = next_lsp_request_id();
-        let lsp_request = create_execute_command_request(
-            request_id,
-            "supercollider.eval",
-            vec![serde_json::json!(body)],
-        );
-
-        match send_lsp_payload(udp_socket, &lsp_request) {
-            Ok(_) => {
-                eprintln!(
-                    "[sc_launcher] HTTP /eval sent {} bytes to sclang (id={})",
-                    body.len(),
-                    request_id
-                );
-                // We don't wait for the LSP response - fire and forget for now
-                // The result will be posted to sclang's post window
-                let response_body = format!(
-                    r#"{{"status":"sent","request_id":{},"code_length":{}}}"#,
-                    request_id,
-                    body.len()
-                );
-                Response::from_string(response_body)
-                    .with_status_code(202)
-                    .with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"application/json"[..],
-                        )
-                        .expect("valid ASCII header"),
-                    )
-                    .with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Access-Control-Allow-Origin"[..],
-                            &b"*"[..],
-                        )
-                        .expect("valid ASCII header"),
-                    )
-            }
-            Err(err) => {
-                eprintln!("[sc_launcher] HTTP /eval failed to send UDP: {}", err);
-                let error_body = format!(r#"{{"error":"failed to send to sclang: {}"}}"#, err);
-                Response::from_string(error_body)
-                    .with_status_code(502)
-                    .with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"application/json"[..],
-                        )
-                        .expect("valid ASCII header"),
-                    )
-            }
-        }
-    // Stop endpoint - CmdPeriod.run
-    } else if url == "/stop" && method == Method::Post {
-        send_command(udp_socket, "supercollider.internal.cmdPeriod", &[])
-    // Boot endpoint - Server.default.boot
-    } else if url == "/boot" && method == Method::Post {
-        send_command(udp_socket, "supercollider.internal.bootServer", &[])
-    // Recompile endpoint - thisProcess.recompile
-    } else if url == "/recompile" && method == Method::Post {
-        send_command(udp_socket, "supercollider.internal.recompile", &[])
-    // Quit server endpoint - Server.default.quit
-    } else if url == "/quit" && method == Method::Post {
-        send_command(udp_socket, "supercollider.internal.quitServer", &[])
-    } else {
-        let body = r#"{"error":"not found","endpoints":["/eval","/health","/stop","/boot","/recompile","/quit"]}"#;
-        Response::from_string(body)
-            .with_status_code(404)
-            .with_header(
-                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                    .expect("valid ASCII header"),
-            )
-    }
-}
-
-/// Send a workspace/executeCommand to sclang and return an HTTP response.
-fn send_command(
-    udp_socket: &UdpSocket,
-    command: &str,
-    arguments: &[&str],
-) -> Response<std::io::Cursor<Vec<u8>>> {
-    let request_id = next_lsp_request_id();
-    let args: Vec<serde_json::Value> = arguments.iter().map(|s| serde_json::json!(s)).collect();
-    let lsp_request = create_execute_command_request(request_id, command, args);
-
-    match send_lsp_payload(udp_socket, &lsp_request) {
-        Ok(_) => {
-            if verbose_logging_enabled() {
-                eprintln!(
-                    "[sc_launcher] HTTP /{} sent command {} (id={})",
-                    command.split('.').last().unwrap_or(command),
-                    command,
-                    request_id
-                );
-            }
-            let response_body = format!(
-                r#"{{"status":"sent","command":"{}","request_id":{}}}"#,
-                command, request_id
-            );
-            Response::from_string(response_body)
-                .with_status_code(202)
-                .with_header(
-                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                        .expect("valid ASCII header"),
-                )
-                .with_header(
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .expect("valid ASCII header"),
-                )
-        }
-        Err(err) => {
-            eprintln!(
-                "[sc_launcher] HTTP /{} failed to send UDP: {}",
-                command.split('.').last().unwrap_or(command),
-                err
-            );
-            let error_body = format!(r#"{{"error":"failed to send to sclang: {}"}}"#, err);
-            Response::from_string(error_body)
-                .with_status_code(502)
-                .with_header(
-                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                        .expect("valid ASCII header"),
-                )
-        }
-    }
 }
 
 /// Send LSP shutdown and exit requests, returning Result for retry handling
 fn request_lsp_shutdown_with_result(udp_socket: &UdpSocket) -> io::Result<()> {
     let shutdown_id = next_lsp_request_id();
     let shutdown_request = create_lsp_request(shutdown_id, "shutdown", serde_json::json!({}));
-    send_lsp_payload(udp_socket, &shutdown_request)?;
+    http::send_lsp_payload(udp_socket, &shutdown_request)?;
 
     let exit_notification = create_lsp_notification("exit", serde_json::json!({}));
-    send_lsp_payload(udp_socket, &exit_notification)?;
+    http::send_lsp_payload(udp_socket, &exit_notification)?;
 
     Ok(())
 }
