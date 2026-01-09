@@ -101,10 +101,10 @@
     "command": "bash",
     "args": [
       "-lc",
-      "SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; [ -z \"$SYMBOL\" ] && exit 0; open \"https://docs.supercollider.online/Classes/$SYMBOL\""
+      "echo \"ZED_SELECTED_TEXT='${ZED_SELECTED_TEXT:-}'\"; SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then echo 'No text selected'; exit 0; fi; echo \"Opening docs for: $SYMBOL\"; open \"https://docs.supercollider.online/Classes/$SYMBOL\""
     ],
-    "reveal": "never",
-    "hide": "on_success",
-    "use_new_terminal": false
+    "reveal": "always",
+    "use_new_terminal": true,
+    "hide": "never"
   }
 ]
