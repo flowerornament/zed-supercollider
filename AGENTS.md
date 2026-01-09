@@ -31,9 +31,11 @@ Ship a stable Zed extension for SuperCollider with navigation, completion, hover
 
 - `src/lib.rs` – extension entry, launcher selection
 - `server/launcher/src/main.rs` – LSP bridge + HTTP eval/control
-- `server/quark/LanguageServer.quark/` – LSP providers
+- `server/quark/LanguageServer.quark/` – LSP providers (submodule)
 - `languages/SuperCollider/config.toml` – language config (stay minimal)
 - `.zed/tasks.json` – tasks that hit HTTP endpoints
+
+**Submodule note:** The quark is a git submodule. When working in it, return to the parent directory for `bd` commands (beads lives in parent repo).
 
 ## Permissions Note
 
