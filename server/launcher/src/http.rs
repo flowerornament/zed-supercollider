@@ -67,7 +67,7 @@ fn cors_preflight_response() -> Response<std::io::Cursor<Vec<u8>>> {
 /// Send an LSP payload to sclang via UDP.
 pub fn send_lsp_payload(udp_socket: &UdpSocket, payload: &serde_json::Value) -> io::Result<()> {
     let lsp_json =
-        serde_json::to_string(payload).map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        serde_json::to_string(payload).map_err(io::Error::other)?;
     let lsp_message = format!("Content-Length: {}\r\n\r\n{}", lsp_json.len(), lsp_json);
 
     udp_socket.send(lsp_message.as_bytes()).map(|_| ())
@@ -107,7 +107,6 @@ pub fn run_http_server(
     // Set a timeout so we can check shutdown flag periodically
     server
         .incoming_requests()
-        .into_iter()
         .take_while(|_| !shutdown.load(Ordering::SeqCst))
         .for_each(|mut request| {
             let response = handle_http_request(&mut request, &udp_socket);
@@ -215,7 +214,7 @@ fn send_command(
             if verbose_logging_enabled() {
                 eprintln!(
                     "[sc_launcher] HTTP /{} sent command {} (id={})",
-                    command.split('.').last().unwrap_or(command),
+                    command.split('.').next_back().unwrap_or(command),
                     command,
                     request_id
                 );
@@ -229,7 +228,7 @@ fn send_command(
         Err(err) => {
             eprintln!(
                 "[sc_launcher] HTTP /{} failed to send UDP: {}",
-                command.split('.').last().unwrap_or(command),
+                command.split('.').next_back().unwrap_or(command),
                 err
             );
             error_response(&format!("failed to send to sclang: {}", err), 502)
