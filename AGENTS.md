@@ -93,12 +93,17 @@ bd sync  # Syncs beads state to/from beads-sync branch
    /commit          # Force direct commit/push
    ```
 
-5. **Verify completion**:
+5. **Push beads state**:
+   ```bash
+   git push origin beads-sync
+   ```
+
+6. **Verify completion**:
    ```bash
    git status  # MUST show "up to date with origin" OR "branch has no upstream" (if PR created)
    ```
 
-6. **Hand off** - provide context for next session
+7. **Hand off** - provide context for next session
 
 **Rules:**
 - Work is NOT complete until pushed to remote or PR is created
