@@ -112,7 +112,7 @@
     "command": "bash",
     "args": [
       "-lc",
-      "SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then echo 'No text selected'; exit 1; fi; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ -f \"$HELP_PATH\" ]; then echo \"=== $SYMBOL ===\"; echo; cat \"$HELP_PATH\"; else echo \"No help found for: $SYMBOL\"; echo \"Tried: $HELP_PATH\"; fi"
+      "echo \"ZED_SELECTED_TEXT='${ZED_SELECTED_TEXT:-}'\"; SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then echo 'No text selected'; exit 1; fi; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ -f \"$HELP_PATH\" ]; then echo \"=== $SYMBOL ===\"; echo; cat \"$HELP_PATH\"; else echo \"No help found for: $SYMBOL\"; echo \"Tried: $HELP_PATH\"; fi"
     ],
     "reveal": "always",
     "use_new_terminal": true,
