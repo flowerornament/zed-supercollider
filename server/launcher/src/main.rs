@@ -468,18 +468,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     }
 
     // Prefer vendored LanguageServer.quark if present (added as a submodule).
-    // Prefer vendored LanguageServer.quark if present (added as a submodule).
-    // Also try the current working directory (helps when launched directly from repo root).
-    let vendored_path = find_vendored_quark_path().or_else(|| {
-        std::env::current_dir().ok().and_then(|cwd| {
-            let candidate = cwd.join("server/quark/LanguageServer.quark");
-            if candidate.exists() {
-                Some(candidate.display().to_string())
-            } else {
-                None
-            }
-        })
-    });
+    let vendored_path = find_vendored_quark_path();
 
     if let Some(vendor_path) = vendored_path {
         if verbose {
