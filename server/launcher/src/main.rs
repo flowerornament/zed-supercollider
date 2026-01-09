@@ -833,7 +833,7 @@ where
                         }
                     }
 
-                    if label == "sclang stdout" && trimmed.contains("***LSP READY***") {
+                    if label == "sclang stdout" && trimmed.contains("*** LSP READY ***") {
                         if let Some(tx) = &ready_signal {
                             let _ = tx.send(());
                         }
