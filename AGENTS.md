@@ -70,27 +70,35 @@ Beads commits go to the `beads-sync` branch automatically (not main).
 bd sync  # Syncs beads state to/from beads-sync branch
 ```
 
+## Git Workflow: Dev Branch
+
+**Why dev?** Multiple Claude Code instances may work in parallel on the same directory. Pushing to `dev` prevents incomplete work from landing on `main`.
+
+**Branches:**
+- `main` - Stable, verified code only
+- `dev` - Working branch, receives all `/commit` pushes
+- `beads-sync` - Issue tracking state (auto-managed)
+
+**How it works:**
+- All Claude Code instances work on `main` locally (no branch switching)
+- `/commit` pushes to `origin/dev` (not main)
+- `/release` merges verified dev to main
+
 ## Session Completion
 
-**When ending a work session**, complete ALL steps. Work is NOT complete until changes are pushed or PR is created.
+**When ending a work session**, complete ALL steps. Work is NOT complete until changes are pushed.
 
 1. **File issues** for remaining work
 2. **Run quality gates** (if code changed) - tests, linters, builds
 3. **Update issue status** - close finished, update in-progress
 4. **COMMIT CHANGES**:
    ```bash
-   /smart-commit
+   /commit          # Pushes to dev branch
    ```
-   This skill will automatically:
-   - Analyze change significance (files, lines, core files)
-   - Create a PR if changes are significant (10+ files, 100+ lines, or core files modified)
-   - Commit and push directly for minor changes
-   - See `.claude-pr-policy.json` for thresholds
 
-   **Manual alternatives** (if needed):
+   For significant changes that need PR review:
    ```bash
-   /pr              # Force PR creation
-   /commit          # Force direct commit/push
+   /pr              # Creates PR to main
    ```
 
 5. **Push beads state**:
@@ -100,13 +108,12 @@ bd sync  # Syncs beads state to/from beads-sync branch
 
 6. **Verify completion**:
    ```bash
-   git status  # MUST show "up to date with origin" OR "branch has no upstream" (if PR created)
+   git log --oneline origin/dev -3  # Confirm your commits are on dev
    ```
 
 7. **Hand off** - provide context for next session
 
 **Rules:**
-- Work is NOT complete until pushed to remote or PR is created
-- NEVER stop before pushing/PR
-- If push/PR fails, resolve and retry
-- `/smart-commit` is preferred for automatic decision-making
+- Work is NOT complete until pushed to remote
+- `/commit` goes to dev, `/pr` goes to main
+- Use `/release` to merge verified dev to main

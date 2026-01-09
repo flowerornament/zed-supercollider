@@ -1,8 +1,10 @@
 ---
-description: Sync bd, stage all changes, commit with good message, push to origin
+description: Sync bd, stage all changes, commit with good message, push to dev
 ---
 
-Commit and push all outstanding changes to origin/main.
+Commit and push all outstanding changes to origin/dev (not main).
+
+**Why dev?** Multiple Claude Code instances may work in parallel on the same directory. Pushing to `dev` prevents incomplete work from landing on `main`. Merge to main explicitly when verified.
 
 ## Steps
 
@@ -30,7 +32,7 @@ Commit and push all outstanding changes to origin/main.
    - Reference bd task IDs if relevant (e.g., "feat(m78.4): quiet logging")
    - If submodule updated, mention it (e.g., "chore: update LanguageServer.quark")
 8. Commit (never --amend unless explicitly told)
-9. Push to origin
+9. Push to dev: `git push origin HEAD:dev`
 
 ## Rules
 

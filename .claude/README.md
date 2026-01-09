@@ -53,44 +53,30 @@ Defines when PRs are required vs. direct commits.
 - Add files to `core_files` to always require PR review for critical changes
 - Change `pr_required_if` to "all" to require ALL conditions (stricter)
 
+## Git Workflow
+
+**Branches:**
+- `main` - Stable, verified code only
+- `dev` - Working branch, all `/commit` pushes go here
+- `beads-sync` - Issue tracking (auto-managed)
+
+**Why dev?** Multiple Claude Code instances may work in parallel. Pushing to `dev` prevents incomplete work from landing on `main`.
+
+**Commands:**
+- `/commit` - Commit and push to `dev` branch
+- `/pr` - Create PR targeting `main`
+- `/release` - Merge verified `dev` to `main`
+
 ## Workflow
 
 When you complete work:
 
 1. Run quality checks (tests, linters, builds)
 2. Close/update issues with `bd close <id>` or `bd update <id>`
-3. Run `/smart-commit` to automatically commit or create PR
-4. Verify with `git status`
+3. Run `/commit` to push to dev
+4. Verify with `git log --oneline origin/dev -3`
 
-Claude Code will automatically:
-- Analyze your changes
-- Show you why a PR was or wasn't created
-- Execute the appropriate workflow
-- Ensure changes are pushed to remote
-
-## Examples
-
-**Small bug fix (direct commit):**
-```
-$ /smart-commit
-Analyzing changes...
-- Files changed: 2
-- Lines changed: 15 additions, 3 deletions (18 total)
-- Core files modified: none
-
-✓ Changes are minor. Committing directly to main...
-```
-
-**Large refactoring (PR created):**
-```
-$ /smart-commit
-Analyzing changes...
-- Files changed: 8
-- Lines changed: 201 additions, 119 deletions (320 total)
-- Core files modified: server/launcher/src/main.rs
-
-✓ Threshold exceeded: lines_changed (320 > 100)
-✓ Threshold exceeded: core_files (main.rs is critical)
-
-📋 Changes are significant. Creating PR for review...
+To release verified work to main:
+```bash
+/release
 ```

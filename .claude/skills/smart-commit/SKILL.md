@@ -69,7 +69,7 @@ Ask Claude:
 
 ✓ Changes are minor (< 10 files, < 100 lines, no core files)
 
-Committing directly to main...
+Committing to dev...
 
 [Executes /commit skill]
 ```
