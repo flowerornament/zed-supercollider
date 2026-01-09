@@ -158,7 +158,9 @@ pub fn write_pid_file(launcher_pid: u32, sclang_pid: u32) -> Result<()> {
     });
     std::fs::write(&path, content.to_string())
         .with_context(|| format!("failed to write PID file at {:?}", path))?;
-    eprintln!("[sc_launcher] wrote PID file at {:?}", path);
+    if verbose_logging_enabled() {
+        eprintln!("[sc_launcher] wrote PID file at {:?}", path);
+    }
     Ok(())
 }
 
@@ -168,7 +170,7 @@ pub fn remove_pid_file() {
     if path.exists() {
         if let Err(e) = std::fs::remove_file(&path) {
             eprintln!("[sc_launcher] warning: failed to remove PID file {:?}: {}", path, e);
-        } else {
+        } else if verbose_logging_enabled() {
             eprintln!("[sc_launcher] removed PID file at {:?}", path);
         }
     }
@@ -193,10 +195,12 @@ pub fn cleanup_orphaned_processes() {
                     if !launcher_alive {
                         // Old launcher is dead - check if sclang is orphaned
                         if is_process_alive(sclang_pid as u32) {
-                            eprintln!(
-                                "[sc_launcher] found orphaned sclang (pid={}) from dead launcher (pid={}), killing",
-                                sclang_pid, launcher_pid
-                            );
+                            if verbose_logging_enabled() {
+                                eprintln!(
+                                    "[sc_launcher] found orphaned sclang (pid={}) from dead launcher (pid={}), killing",
+                                    sclang_pid, launcher_pid
+                                );
+                            }
                             kill_process(sclang_pid as u32);
                         }
                         // Remove stale PID file
@@ -271,10 +275,12 @@ fn cleanup_orphaned_sclang_by_ppid() {
                     let comm = parts[2..].join(" ");
                     // Check if it's an orphaned sclang (PPID=1 means parent died)
                     if ppid == 1 && comm.contains("sclang") {
-                        eprintln!(
-                            "[sc_launcher] found orphaned sclang process (pid={}, ppid=1), killing",
-                            pid
-                        );
+                        if verbose_logging_enabled() {
+                            eprintln!(
+                                "[sc_launcher] found orphaned sclang process (pid={}, ppid=1), killing",
+                                pid
+                            );
+                        }
                         kill_process(pid);
                     }
                 }
@@ -304,7 +310,9 @@ fn detect_sclang(args: &Args) -> Result<String> {
 
     if let Ok(env_path) = std::env::var("SCLANG_PATH") {
         if Path::new(&env_path).exists() {
-            eprintln!("[sc_launcher] using sclang from SCLANG_PATH={}", env_path);
+            if verbose_logging_enabled() {
+                eprintln!("[sc_launcher] using sclang from SCLANG_PATH={}", env_path);
+            }
             return Ok(env_path);
         }
     }
@@ -317,7 +325,9 @@ fn detect_sclang(args: &Args) -> Result<String> {
     {
         let default_mac = "/Applications/SuperCollider.app/Contents/MacOS/sclang";
         if Path::new(default_mac).exists() {
-            eprintln!("[sc_launcher] using default macOS sclang at {}", default_mac);
+            if verbose_logging_enabled() {
+                eprintln!("[sc_launcher] using default macOS sclang at {}", default_mac);
+            }
             return Ok(default_mac.to_string());
         }
     }
@@ -354,14 +364,16 @@ fn main() -> Result<()> {
         }
     }
 
-    // Also try stderr
-    eprintln!("[sc_launcher] ======== MAIN STARTED ========");
-    eprintln!(
-        "[sc_launcher] PID={} args={:?}",
-        std::process::id(),
-        std::env::args().collect::<Vec<_>>()
-    );
-    let _ = std::io::stderr().flush();
+    // Log startup details only in verbose mode
+    if verbose_logging_enabled() {
+        eprintln!("[sc_launcher] ======== MAIN STARTED ========");
+        eprintln!(
+            "[sc_launcher] PID={} args={:?}",
+            std::process::id(),
+            std::env::args().collect::<Vec<_>>()
+        );
+        let _ = std::io::stderr().flush();
+    }
 
     let args = Args::parse();
 
@@ -402,6 +414,7 @@ fn main() -> Result<()> {
 
 pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let startup_start = Instant::now();
+    let verbose = verbose_logging_enabled();
 
     // Clean up any orphaned sclang processes from previous launcher instances
     cleanup_orphaned_processes();
@@ -469,14 +482,18 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     });
 
     if let Some(vendor_path) = vendored_path {
-        eprintln!("[sc_launcher] including vendored LanguageServer.quark at {}", vendor_path);
+        if verbose {
+            eprintln!("[sc_launcher] including vendored LanguageServer.quark at {}", vendor_path);
+        }
         command.arg("--include-path").arg(&vendor_path);
 
         for installed in installed_quark_paths() {
-            eprintln!(
-                "[sc_launcher] excluding installed LanguageServer.quark at {}",
-                installed.display()
-            );
+            if verbose {
+                eprintln!(
+                    "[sc_launcher] excluding installed LanguageServer.quark at {}",
+                    installed.display()
+                );
+            }
             command
                 .arg("--exclude-path")
                 .arg(installed.display().to_string());
@@ -486,22 +503,26 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         // The vendored quark provides its own Document class in scide_vscode/ that properly
         // delegates to LSPDocument for LSP-based document management.
         if let Some(scide_path) = find_scide_scqt_path(sclang) {
-            eprintln!(
-                "[sc_launcher] excluding built-in scide_scqt at {}",
-                scide_path
-            );
+            if verbose {
+                eprintln!(
+                    "[sc_launcher] excluding built-in scide_scqt at {}",
+                    scide_path
+                );
+            }
             command.arg("--exclude-path").arg(scide_path);
         }
     }
 
-    eprintln!(
-        "[sc_launcher] spawning sclang (client={}, server={}, log_level={})",
-        ports.client_port,
-        ports.server_port,
-        args.log_level
-            .as_deref()
-            .unwrap_or("error (LanguageServer default)")
-    );
+    if verbose {
+        eprintln!(
+            "[sc_launcher] spawning sclang (client={}, server={}, log_level={})",
+            ports.client_port,
+            ports.server_port,
+            args.log_level
+                .as_deref()
+                .unwrap_or("error (LanguageServer default)")
+        );
+    }
 
     let mut child = command
         .spawn()
@@ -515,10 +536,12 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
             run_token,
             owned: AtomicBool::new(true),
         });
-        eprintln!(
-            "[sc_launcher] run token {}: spawned sclang pid={}",
-            run_token, pid
-        );
+        if verbose {
+            eprintln!(
+                "[sc_launcher] run token {}: spawned sclang pid={}",
+                run_token, pid
+            );
+        }
         // Write PID file for safe cleanup by external tools
         if let Err(e) = write_pid_file(std::process::id(), pid) {
             eprintln!("[sc_launcher] warning: {}", e);
@@ -563,8 +586,10 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     // Start the stdin bridge IMMEDIATELY to capture the initialize request from Zed.
     // The bridge will buffer messages until sclang is ready.
-    eprintln!("[sc_launcher] about to spawn stdin_bridge thread");
-    let _ = std::io::stderr().flush();
+    if verbose {
+        eprintln!("[sc_launcher] about to spawn stdin_bridge thread");
+        let _ = std::io::stderr().flush();
+    }
     let sclang_ready = Arc::new(AtomicBool::new(false));
     let stdin_bridge = {
         let udp = udp_sender
@@ -575,14 +600,18 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         let ready_flag = sclang_ready.clone();
         let responded = responded_ids.clone();
         let recompile_count = ready_count.clone();
-        eprintln!("[sc_launcher] spawning stdin->udp thread NOW");
-        let _ = std::io::stderr().flush();
+        if verbose {
+            eprintln!("[sc_launcher] spawning stdin->udp thread NOW");
+            let _ = std::io::stderr().flush();
+        }
         let handle = thread::Builder::new()
             .name("stdin->udp".into())
             .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag, responded, recompile_count))
             .context("failed to spawn stdin->udp bridge thread")?;
-        eprintln!("[sc_launcher] stdin->udp thread spawned successfully");
-        let _ = std::io::stderr().flush();
+        if verbose {
+            eprintln!("[sc_launcher] stdin->udp thread spawned successfully");
+            let _ = std::io::stderr().flush();
+        }
         handle
     };
 
@@ -603,10 +632,12 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     loop {
         if let Ok(()) = ready_rx.try_recv() {
             let startup_elapsed = startup_start.elapsed();
-            eprintln!(
-                "[sc_launcher] detected 'LSP READY' from sclang (startup: {:.2?})",
-                startup_elapsed
-            );
+            if verbose {
+                eprintln!(
+                    "[sc_launcher] detected 'LSP READY' from sclang (startup: {:.2?})",
+                    startup_elapsed
+                );
+            }
             sclang_ready.store(true, Ordering::SeqCst);
             break;
         }
@@ -692,10 +723,12 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     if status.success() {
         Ok(())
     } else if stdin_closed {
-        eprintln!(
-            "[sc_launcher] sclang exited after stdin closed ({})",
-            status
-        );
+        if verbose {
+            eprintln!(
+                "[sc_launcher] sclang exited after stdin closed ({})",
+                status
+            );
+        }
         Ok(())
     } else {
         Err(anyhow!("sclang exited with status {}", status))
@@ -733,15 +766,13 @@ fn find_vendored_quark_path() -> Option<String> {
 
     for candidate in candidates {
         if candidate.exists() {
-            eprintln!(
-                "[sc_launcher] including vendored LanguageServer.quark at {}",
-                candidate.display()
-            );
             return Some(candidate.display().to_string());
         }
     }
 
-    eprintln!("[sc_launcher] no vendored LanguageServer.quark found in expected locations");
+    if verbose_logging_enabled() {
+        eprintln!("[sc_launcher] no vendored LanguageServer.quark found in expected locations");
+    }
     None
 }
 
@@ -771,7 +802,7 @@ where
                 None
             };
 
-            if post_file.is_some() && label == "sclang stdout" {
+            if post_file.is_some() && label == "sclang stdout" && verbose {
                 eprintln!(
                     "[sc_launcher] sclang output -> {}",
                     post_log_path.display()
@@ -815,7 +846,9 @@ where
                         // Increment ready count for recompile detection
                         if let Some(ref counter) = ready_count {
                             let old_count = counter.fetch_add(1, Ordering::SeqCst);
-                            eprintln!("[sc_launcher] LSP READY count: {} -> {}", old_count, old_count + 1);
+                            if verbose {
+                                eprintln!("[sc_launcher] LSP READY count: {} -> {}", old_count, old_count + 1);
+                            }
                         }
                     }
                 }
@@ -843,10 +876,12 @@ struct RunningGuard {
 impl Drop for RunningGuard {
     fn drop(&mut self) {
         IS_RUNNING.store(false, Ordering::SeqCst);
-        eprintln!(
-            "[sc_launcher] run token {}: cleared running guard",
-            self.run_token
-        );
+        if verbose_logging_enabled() {
+            eprintln!(
+                "[sc_launcher] run token {}: cleared running guard",
+                self.run_token
+            );
+        }
     }
 }
 
@@ -859,10 +894,12 @@ fn release_child_state(state: &Arc<Mutex<Option<ChildState>>>) {
     if let Ok(mut slot) = state.lock() {
         if let Some(child) = slot.take() {
             child.owned.store(false, Ordering::SeqCst);
-            eprintln!(
-                "[sc_launcher] run token {}: released tracked sclang pid {}",
-                child.run_token, child.pid
-            );
+            if verbose_logging_enabled() {
+                eprintln!(
+                    "[sc_launcher] run token {}: released tracked sclang pid {}",
+                    child.run_token, child.pid
+                );
+            }
         }
     }
 }

@@ -13,7 +13,7 @@ Zed extension for [SuperCollider](https://supercollider.github.io/) with LSP sup
 
 ## Prerequisites
 
-- **macOS** (primary supported platform)
+- **macOS only** (Windows/Linux not yet supported)
 - **SuperCollider** installed ([download](https://supercollider.github.io/downloads))
 - **Zed** editor ([download](https://zed.dev/))
 - **Rust** via [rustup](https://rustup.rs/) (required for building dev extensions)
