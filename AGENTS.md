@@ -52,6 +52,24 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
+## Beads Sync Policy
+
+Beads commits go to the `beads-sync` branch automatically (not main).
+
+**Rules:**
+- Never checkout `beads-sync` to do work - it's only for beads state
+- The daemon auto-commits beads changes to this branch
+- Push beads-sync when pushing code:
+  ```bash
+  git push                      # Push main/feature branch
+  git push origin beads-sync    # Push beads state
+  ```
+
+**If beads-sync diverges or gets stale:**
+```bash
+bd sync  # Syncs beads state to/from beads-sync branch
+```
+
 ## Session Completion
 
 **When ending a work session**, complete ALL steps. Work is NOT complete until changes are pushed or PR is created.
