@@ -178,11 +178,13 @@ fn handle_eval(
 
     match send_lsp_payload(udp_socket, &lsp_request) {
         Ok(_) => {
-            eprintln!(
-                "[sc_launcher] HTTP /eval sent {} bytes to sclang (id={})",
-                body.len(),
-                request_id
-            );
+            if verbose_logging_enabled() {
+                eprintln!(
+                    "[sc_launcher] HTTP /eval sent {} bytes to sclang (id={})",
+                    body.len(),
+                    request_id
+                );
+            }
             // We don't wait for the LSP response - fire and forget for now
             // The result will be posted to sclang's post window
             let response_body = format!(

@@ -1184,22 +1184,8 @@ fn pump_stdin_to_udp(
         );
     }
 
-    if verbose {
-        eprintln!("[sc_launcher] pump_stdin_to_udp: ENTERED FUNCTION");
-        let _ = std::io::stderr().flush();
-    }
-
     let stdin = io::stdin();
-    if verbose {
-        eprintln!("[sc_launcher] pump_stdin_to_udp: got stdin handle");
-        let _ = std::io::stderr().flush();
-    }
-
     let mut reader = BufReader::new(stdin.lock());
-    if verbose {
-        eprintln!("[sc_launcher] pump_stdin_to_udp: created BufReader with stdin lock");
-        let _ = std::io::stderr().flush();
-    }
 
     // Use a channel to queue messages for sending (allows separate flush thread)
     let (msg_tx, msg_rx) = mpsc::channel::<Vec<u8>>();
@@ -1214,18 +1200,10 @@ fn pump_stdin_to_udp(
     let resend_did_change = cached_did_change.clone();
     let resend_initialize = cached_initialize.clone();
     let recompile_counter = ready_count.clone();
-    if verbose {
-        eprintln!("[sc_launcher] pump_stdin_to_udp: about to spawn sender thread");
-        let _ = std::io::stderr().flush();
-    }
     let sender_thread = thread::Builder::new()
         .name("stdin-sender".into())
         .spawn(move || {
             let sender_start = std::time::Instant::now();
-            if verbose {
-                eprintln!("[sc_launcher] stdin-sender thread started at t=0ms");
-                let _ = std::io::stderr().flush();
-            }
             let mut pending_messages: Vec<Vec<u8>> = Vec::new();
             let mut ready_signaled = false;
             let mut last_ready_count: u64 = 0;
@@ -1236,25 +1214,24 @@ fn pump_stdin_to_udp(
                 if current_ready_count > last_ready_count {
                     if last_ready_count > 0 {
                         // This is a recompile (not the initial ready)
-                        eprintln!("[sc_launcher] RECOMPILE DETECTED (ready count {} -> {}), re-sending initialize",
-                            last_ready_count, current_ready_count);
+                        if verbose {
+                            eprintln!("[sc_launcher] RECOMPILE DETECTED (ready count {} -> {}), re-sending state",
+                                last_ready_count, current_ready_count);
+                        }
                         // Re-send cached initialize
                         if let Some(init_msg) = resend_initialize.lock().ok().and_then(|m| m.clone()) {
-                            eprintln!("[sc_launcher] re-sending cached initialize after recompile");
                             if let Err(err) = send_with_retry(&sender_socket, &init_msg) {
                                 eprintln!("[sc_launcher] failed to re-send initialize: {err}");
                             }
                         }
                         // Re-send cached didOpen
                         if let Some(open_msg) = resend_did_open.lock().ok().and_then(|m| m.clone()) {
-                            eprintln!("[sc_launcher] re-sending cached didOpen after recompile");
                             if let Err(err) = send_with_retry(&sender_socket, &open_msg) {
                                 eprintln!("[sc_launcher] failed to re-send didOpen: {err}");
                             }
                         }
                         // Re-send cached didChange
                         if let Some(change_msg) = resend_did_change.lock().ok().and_then(|m| m.clone()) {
-                            eprintln!("[sc_launcher] re-sending cached didChange after recompile");
                             if let Err(err) = send_with_retry(&sender_socket, &change_msg) {
                                 eprintln!("[sc_launcher] failed to re-send didChange: {err}");
                             }
@@ -1335,18 +1312,9 @@ fn pump_stdin_to_udp(
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
                         // Reader thread closed - handle shutdown gracefully
-                        eprintln!(
-                            "[sc_launcher] sender thread: channel disconnected, {} pending messages",
-                            pending_messages.len()
-                        );
-
                         if !pending_messages.is_empty() {
                             if ready_signaled {
                                 // sclang is ready, flush all pending messages
-                                eprintln!(
-                                    "[sc_launcher] flushing {} pending messages before shutdown",
-                                    pending_messages.len()
-                                );
                                 for msg in pending_messages.drain(..) {
                                     let _ = send_with_retry(&sender_socket, &msg);
                                 }
@@ -1356,10 +1324,6 @@ fn pump_stdin_to_udp(
                                     + millis_to_duration(SHUTDOWN_FLUSH_WAIT_MS);
                                 while std::time::Instant::now() < deadline {
                                     if sender_ready.load(Ordering::SeqCst) {
-                                        eprintln!(
-                                            "[sc_launcher] sclang became ready during shutdown, flushing {} messages",
-                                            pending_messages.len()
-                                        );
                                         for msg in pending_messages.drain(..) {
                                             let _ = send_with_retry(&sender_socket, &msg);
                                         }
@@ -1390,16 +1354,12 @@ fn pump_stdin_to_udp(
                     }
                     // Final flush attempt if ready
                     if ready_signaled && !pending_messages.is_empty() {
-                        eprintln!(
-                            "[sc_launcher] sender thread: flushing {} remaining messages on shutdown",
-                            pending_messages.len()
-                        );
                         for msg in pending_messages.drain(..) {
                             let _ = send_with_retry(&sender_socket, &msg);
                         }
                     } else if !pending_messages.is_empty() {
                         eprintln!(
-                            "[sc_launcher] sender thread: dropping {} messages on shutdown (sclang not ready)",
+                            "[sc_launcher] WARNING: dropping {} messages on shutdown (sclang not ready)",
                             pending_messages.len()
                         );
                     }
@@ -1407,9 +1367,6 @@ fn pump_stdin_to_udp(
                 }
             }
         })?;
-
-    eprintln!("[sc_launcher] stdin reader: starting main loop");
-    let _ = std::io::stderr().flush();
 
     if let Some(ref mut f) = stdin_log {
         use std::io::Write;
@@ -1478,7 +1435,9 @@ fn pump_stdin_to_udp(
                                 // We can't wait for sclang because Zed expects a fast response
                                 if method == "initialize" {
                                     if let Some(id) = json.get("id") {
-                                        eprintln!("[sc_launcher] INTERCEPTING initialize request - responding immediately");
+                                        if verbose {
+                                            eprintln!("[sc_launcher] INTERCEPTING initialize request - responding immediately");
+                                        }
                                         let response = create_initialize_response(id.clone());
                                         let response_json = serde_json::to_string(&response)
                                             .expect("initialize response must serialize");

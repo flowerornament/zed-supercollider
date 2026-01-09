@@ -81,10 +81,6 @@ impl zed::Extension for SuperColliderExtension {
         language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> zed::Result<zed::Command> {
-        eprintln!(
-            "[supercollider] language_server_command requested for id={}",
-            language_server_id
-        );
         // Accept either "supercollider" or "SuperCollider" defensively.
         if !is_supercollider_server(language_server_id) {
             return Err(format!(
