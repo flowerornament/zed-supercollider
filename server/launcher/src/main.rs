@@ -1486,8 +1486,8 @@ fn pump_stdin_to_udp(
                                     if let Some(id) = json.get("id") {
                                         eprintln!("[sc_launcher] INTERCEPTING initialize request - responding immediately");
                                         let response = create_initialize_response(id.clone());
-                                        let response_json =
-                                            serde_json::to_string(&response).unwrap();
+                                        let response_json = serde_json::to_string(&response)
+                                            .expect("initialize response must serialize");
                                         let response_msg = format!(
                                             "Content-Length: {}\r\n\r\n{}",
                                             response_json.len(),
@@ -1761,13 +1761,11 @@ fn pump_udp_to_stdout(
                             if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
                                 // Check for capabilities in result (initialize response)
                                 if let Some(result) = json.get("result") {
-                                    if result.get("capabilities").is_some() {
+                                    if let Some(capabilities) = result.get("capabilities") {
                                         eprintln!(
                                             "[sc_launcher] *** SERVER CAPABILITIES ***:\n{}",
-                                            serde_json::to_string_pretty(
-                                                result.get("capabilities").unwrap()
-                                            )
-                                            .unwrap_or_default()
+                                            serde_json::to_string_pretty(capabilities)
+                                                .unwrap_or_default()
                                         );
                                     }
                                 }
@@ -2083,21 +2081,21 @@ fn handle_http_request(
             .with_status_code(204)
             .with_header(
                 tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                    .unwrap(),
+                    .expect("valid ASCII header"),
             )
             .with_header(
                 tiny_http::Header::from_bytes(
                     &b"Access-Control-Allow-Methods"[..],
                     &b"POST, OPTIONS"[..],
                 )
-                .unwrap(),
+                .expect("valid ASCII header"),
             )
             .with_header(
                 tiny_http::Header::from_bytes(
                     &b"Access-Control-Allow-Headers"[..],
                     &b"Content-Type"[..],
                 )
-                .unwrap(),
+                .expect("valid ASCII header"),
             );
     }
 
@@ -2108,7 +2106,7 @@ fn handle_http_request(
             .with_status_code(200)
             .with_header(
                 tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                    .unwrap(),
+                    .expect("valid ASCII header"),
             );
     }
 
@@ -2121,7 +2119,7 @@ fn handle_http_request(
                 .with_status_code(400)
                 .with_header(
                     tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                        .unwrap(),
+                        .expect("valid ASCII header"),
                 );
         }
 
@@ -2154,14 +2152,14 @@ fn handle_http_request(
                             &b"Content-Type"[..],
                             &b"application/json"[..],
                         )
-                        .unwrap(),
+                        .expect("valid ASCII header"),
                     )
                     .with_header(
                         tiny_http::Header::from_bytes(
                             &b"Access-Control-Allow-Origin"[..],
                             &b"*"[..],
                         )
-                        .unwrap(),
+                        .expect("valid ASCII header"),
                     )
             }
             Err(err) => {
@@ -2174,7 +2172,7 @@ fn handle_http_request(
                             &b"Content-Type"[..],
                             &b"application/json"[..],
                         )
-                        .unwrap(),
+                        .expect("valid ASCII header"),
                     )
             }
         }
@@ -2196,7 +2194,7 @@ fn handle_http_request(
             .with_status_code(404)
             .with_header(
                 tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                    .unwrap(),
+                    .expect("valid ASCII header"),
             )
     }
 }
@@ -2229,11 +2227,11 @@ fn send_command(
                 .with_status_code(202)
                 .with_header(
                     tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                        .unwrap(),
+                        .expect("valid ASCII header"),
                 )
                 .with_header(
                     tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                        .unwrap(),
+                        .expect("valid ASCII header"),
                 )
         }
         Err(err) => {
@@ -2247,7 +2245,7 @@ fn send_command(
                 .with_status_code(502)
                 .with_header(
                     tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                        .unwrap(),
+                        .expect("valid ASCII header"),
                 )
         }
     }
