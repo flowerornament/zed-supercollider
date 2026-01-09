@@ -2032,6 +2032,7 @@ pub fn run_http_server(
     udp_socket: UdpSocket,
     shutdown: Arc<AtomicBool>,
 ) -> Result<()> {
+    let verbose = verbose_logging_enabled();
     let addr = format!("127.0.0.1:{}", port);
     let server = match Server::http(&addr) {
         Ok(s) => s,
@@ -2044,10 +2045,12 @@ pub fn run_http_server(
         }
     };
 
-    eprintln!(
-        "[sc_launcher] HTTP eval server listening on http://{}",
-        addr
-    );
+    if verbose {
+        eprintln!(
+            "[sc_launcher] HTTP eval server listening on http://{}",
+            addr
+        );
+    }
 
     // Set a timeout so we can check shutdown flag periodically
     server
@@ -2061,7 +2064,9 @@ pub fn run_http_server(
             }
         });
 
-    eprintln!("[sc_launcher] HTTP server shutting down");
+    if verbose {
+        eprintln!("[sc_launcher] HTTP server shutting down");
+    }
     Ok(())
 }
 
@@ -2208,12 +2213,14 @@ fn send_command(
 
     match send_lsp_payload(udp_socket, &lsp_request) {
         Ok(_) => {
-            eprintln!(
-                "[sc_launcher] HTTP /{} sent command {} (id={})",
-                command.split('.').last().unwrap_or(command),
-                command,
-                request_id
-            );
+            if verbose_logging_enabled() {
+                eprintln!(
+                    "[sc_launcher] HTTP /{} sent command {} (id={})",
+                    command.split('.').last().unwrap_or(command),
+                    command,
+                    request_id
+                );
+            }
             let response_body = format!(
                 r#"{{"status":"sent","command":"{}","request_id":{}}}"#,
                 command, request_id
