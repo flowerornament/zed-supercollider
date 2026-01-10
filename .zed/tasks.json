@@ -1,5 +1,21 @@
 [
   {
+    "label": "DEBUG: Show Selection",
+    "command": "bash",
+    "args": ["-c", "echo \"ALL ZED VARS:\"; env | grep -i zed; read"],
+    "reveal": "always",
+    "use_new_terminal": true,
+    "reevaluate_context": true
+  },
+  {
+    "label": "SC Help",
+    "command": "bash",
+    "args": ["-c", "echo \"Got: $ZED_SELECTED_TEXT\"; SYMBOL=\"$ZED_SELECTED_TEXT\"; [ -z \"$SYMBOL\" ] && { printf 'Class: '; read SYMBOL; }; HELP=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; [ -f \"$HELP\" ] && pandoc -f \"$ZED_WORKTREE_ROOT/tools/schelp/schelp.lua\" -t markdown \"$HELP\" | glow -p || echo \"Not found: $SYMBOL\""],
+    "reveal": "always",
+    "use_new_terminal": true,
+    "reevaluate_context": true
+  },
+  {
     "label": "SuperCollider: Post Window",
     "command": "tail",
     "args": ["-f", "/tmp/sclang_post.log"],
@@ -123,10 +139,10 @@
     "command": "bash",
     "args": [
       "-lc",
-      "SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then printf 'Class name: '; read SYMBOL; fi; if [ -z \"$SYMBOL\" ]; then exit 1; fi; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ ! -f \"$HELP_PATH\" ]; then echo \"No help found for: $SYMBOL\"; exit 1; fi; READER=\"${ZED_WORKTREE_ROOT}/tools/schelp/schelp.lua\"; OUT=\"/tmp/${SYMBOL}.md\"; pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" -o \"$OUT\" && zed \"$OUT\""
+      "SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then printf 'Class name: '; read SYMBOL; fi; [ -z \"$SYMBOL\" ] && exit 1; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ ! -f \"$HELP_PATH\" ]; then echo \"No help: $SYMBOL\"; sleep 1; exit 1; fi; READER=\"${ZED_WORKTREE_ROOT}/tools/schelp/schelp.lua\"; OUT=\"/tmp/${SYMBOL}.md\"; pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" -o \"$OUT\" && zed \"$OUT\""
     ],
-    "reveal": "never",
-    "use_new_terminal": false,
+    "reveal": "always",
+    "use_new_terminal": true,
     "hide": "on_success",
     "reevaluate_context": true
   },
@@ -134,8 +150,8 @@
     "label": "SuperCollider: Help (Markdown)",
     "command": "bash",
     "args": [
-      "-lc",
-      "SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then printf 'Class name: '; read SYMBOL; fi; if [ -z \"$SYMBOL\" ]; then exit 1; fi; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ ! -f \"$HELP_PATH\" ]; then echo \"No help found for: $SYMBOL\"; exit 1; fi; READER=\"${ZED_WORKTREE_ROOT}/tools/schelp/schelp.lua\"; if [ -f \"$READER\" ] && command -v pandoc >/dev/null; then if command -v glow >/dev/null; then pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" | glow -p; else pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" | less; fi; else less \"$HELP_PATH\"; fi"
+      "-c",
+      "SYMBOL=\"$ZED_SELECTED_TEXT\"; if [ -z \"$SYMBOL\" ]; then printf 'Class name: '; read SYMBOL; fi; if [ -z \"$SYMBOL\" ]; then exit 1; fi; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ ! -f \"$HELP_PATH\" ]; then echo \"No help found for: $SYMBOL\"; exit 1; fi; READER=\"$ZED_WORKTREE_ROOT/tools/schelp/schelp.lua\"; if [ -f \"$READER\" ] && command -v pandoc >/dev/null; then if command -v glow >/dev/null; then pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" | glow -p; else pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" | less; fi; else less \"$HELP_PATH\"; fi"
     ],
     "reveal": "always",
     "use_new_terminal": true,
