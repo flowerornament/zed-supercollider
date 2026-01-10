@@ -88,6 +88,17 @@
     "use_new_terminal": false
   },
   {
+    "label": "SuperCollider: Help",
+    "command": "bash",
+    "args": [
+      "-lc",
+      "SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then echo 'Select a class name first'; exit 1; fi; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ ! -f \"$HELP_PATH\" ]; then echo \"No help found for: $SYMBOL\"; exit 1; fi; READER=\"${ZED_WORKTREE_ROOT}/tools/schelp/schelp.lua\"; if [ -f \"$READER\" ] && command -v pandoc >/dev/null; then pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" | less -R; else echo \"=== $SYMBOL (raw) ===\"; cat \"$HELP_PATH\" | less; fi"
+    ],
+    "reveal": "always",
+    "use_new_terminal": true,
+    "hide": "never"
+  },
+  {
     "label": "SuperCollider: Kill All (Emergency Cleanup)",
     "command": "bash",
     "args": [
