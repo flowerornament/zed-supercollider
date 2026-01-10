@@ -1,0 +1,36 @@
+# Pan2
+
+*Two channel equal power pan.*
+
+## Description
+
+Two channel equal power panner. Pan2 takes the square root of the linear scaling factor going from 1 (left or right) to 0.5.sqrt (\~=0.707) in the center, which is about 3dB reduction. With linear panning (LinPan2) the signal is lowered as it approaches center using a straight line from 1 (left or right) to 0.5 (center) for a 6dB reduction in the middle. A problem inherent to linear panning is that the perceived volume of the signal drops in the middle. Pan2 solves this.
+
+## Class Methods
+
+#### `*ar, *kr`
+
+**in**:
+
+The input signal.
+
+**pos**:
+
+Pan position, -1 is left, +1 is right.
+
+**level**:
+
+A control rate level input.
+
+## Examples
+
+``` supercollider
+// hear the difference, LinPan having a slight drop in the middle...
+{ LinPan2.ar(SinOsc.ar(440), Line.kr(-1, 1, 5)) }.play
+
+// ... whereas Pan2 is more smooth
+{ Pan2.ar(SinOsc.ar(440), Line.kr(-1, 1, 5)) }.play
+
+// other examples
+{ Pan2.ar(PinkNoise.ar(0.4), FSinOsc.kr(2), 0.3) }.play;
+```
