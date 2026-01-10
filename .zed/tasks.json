@@ -123,7 +123,7 @@
     "command": "bash",
     "args": [
       "-lc",
-      "SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then echo 'No text selected'; exit 1; fi; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ ! -f \"$HELP_PATH\" ]; then echo \"No help found for: $SYMBOL\"; exit 1; fi; READER=\"${ZED_WORKTREE_ROOT}/tools/schelp/schelp.lua\"; if [ -f \"$READER\" ] && command -v pandoc >/dev/null; then pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" | less; else echo '(pandoc not found, showing raw)'; less \"$HELP_PATH\"; fi"
+      "SYMBOL=\"${ZED_SELECTED_TEXT:-}\"; if [ -z \"$SYMBOL\" ]; then echo 'No text selected'; exit 1; fi; HELP_PATH=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ ! -f \"$HELP_PATH\" ]; then echo \"No help found for: $SYMBOL\"; exit 1; fi; READER=\"${ZED_WORKTREE_ROOT}/tools/schelp/schelp.lua\"; if [ -f \"$READER\" ] && command -v pandoc >/dev/null; then if command -v glow >/dev/null; then pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" | glow -; else pandoc -f \"$READER\" -t markdown \"$HELP_PATH\" | less; fi; else less \"$HELP_PATH\"; fi"
     ],
     "reveal": "always",
     "use_new_terminal": true,
