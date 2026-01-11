@@ -74,17 +74,24 @@ bd sync  # Syncs beads state to/from beads-sync branch
 
 ## Git Workflow: Dev Branch
 
+**CRITICAL: Never ship broken builds to main.** Main must always be buildable and functional. All work goes through dev first.
+
 **Why dev?** Multiple Claude Code instances may work in parallel on the same directory. Pushing to `dev` prevents incomplete work from landing on `main`.
 
 **Branches:**
-- `main` - Stable, verified code only
+- `main` - Stable, verified code only. **Must always build and work.**
 - `dev` - Working branch, receives all `/commit` pushes
 - `beads-sync` - Issue tracking state (auto-managed)
 
 **How it works:**
 - All Claude Code instances work on `main` locally (no branch switching)
 - `/commit` pushes to `origin/dev` (not main)
-- `/release` merges verified dev to main
+- `/release` merges verified dev to main **only after verification**
+
+**Before releasing to main:**
+1. Build succeeds: `cargo build --target wasm32-wasip2 --release`
+2. Extension loads in Zed (test with "zed: reload extensions")
+3. Core features work (LSP starts, completion/hover functional)
 
 ## Session Completion
 
