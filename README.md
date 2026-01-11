@@ -1,14 +1,14 @@
 # SuperCollider Extension for Zed
 
-> **Alpha Software** - This extension is under active development. Expect bugs, breaking changes, and rough edges. For adventurous users who want to help shape the project.
+> **Early Release** - This extension is under active development. Core features work well, but expect some rough edges. Feedback welcome!
 
 Zed extension for [SuperCollider](https://supercollider.github.io/) with LSP support and HTTP-based code evaluation.
 
 ## Features
 
 - **Language Server Protocol**: Go-to-definition, find references, hover documentation, completions
-- **Code Evaluation**: Play buttons on code blocks, fire-and-forget eval via HTTP
-- **Server Control**: Boot, stop, recompile, quit via Zed tasks
+- **Code Evaluation**: Play buttons, keyboard shortcuts, and CodeActions menu
+- **Server Control**: Boot, stop, recompile, quit via tasks or CodeActions
 - **Syntax Highlighting**: Tree-sitter grammar with SuperCollider-specific queries
 
 ## Prerequisites
@@ -16,12 +16,12 @@ Zed extension for [SuperCollider](https://supercollider.github.io/) with LSP sup
 - **macOS only** (Windows/Linux not yet supported)
 - **SuperCollider** installed ([download](https://supercollider.github.io/downloads))
 - **Zed** editor ([download](https://zed.dev/))
-- **Rust** via [rustup](https://rustup.rs/) (required for building dev extensions)
-  - Homebrew-installed Rust will not work with Zed dev extensions
+- **Rust** via [rustup](https://rustup.rs/)
+  - Homebrew Rust won't work — Zed compiles extensions to WebAssembly, which requires the `wasm32-wasip1` target that only rustup can easily provide
 
-## Installation (Development Mode)
+## Installation
 
-This is the current installation method. Distribution will simplify in the future.
+This extension isn't in the Zed extension gallery yet, so you'll build it from source.
 
 ### 1. Clone the repository
 
@@ -43,8 +43,6 @@ cd server/launcher
 cargo build --release
 cd ../..
 ```
-
-This creates `server/launcher/target/release/sc_launcher`.
 
 ### 4. Load the extension in Zed
 
@@ -74,57 +72,80 @@ Open Zed settings (`Cmd+,`) and add:
 
 Replace `/absolute/path/to/zed-supercollider` with your actual clone location.
 
-### 6. Install tasks (optional but recommended)
+### 6. Verify installation
 
-Copy the task definitions for code evaluation and server control:
-
-```bash
-scripts/install-tasks.sh
-```
-
-Or manually copy `.zed/tasks.json` to your SuperCollider workspace.
+1. Open any `.sc` or `.scd` file in the cloned repo (e.g., `examples/` if present, or create a test file)
+2. Run `SC: Check Setup` from tasks (`Cmd+Shift+P` → "task: spawn" → search "check")
+3. You should see a play button (▶) appear on parenthesized blocks like `(1 + 1)`
 
 ## Usage
 
-### Opening SuperCollider files
+### Working from the repo
 
-Open any `.sc` or `.scd` file. The extension activates automatically.
+**Important:** Work on SuperCollider files from within the cloned `zed-supercollider` directory. The tasks and keymaps are already configured there.
+
+To use SuperCollider in other projects, copy `.zed/tasks.json` and optionally `.zed/keymap.json` to that project's `.zed/` folder.
+
+### Post Window
+
+SuperCollider output (print statements, errors, server messages) goes to the Post Window. Open it with:
+- Task: `SC: Post Window` (runs `tail -f` on the log file)
+- Or directly: `tail -f /tmp/sclang_post.log`
 
 ### Code evaluation
 
-- Click the **play button** on parenthesized blocks `(...)` or function blocks `{...}`
-- Results appear in the Post Window (see below)
+Multiple ways to evaluate code:
+
+| Method | How |
+|--------|-----|
+| **Play button** | Click ▶ on parenthesized blocks `(...)` |
+| **Keyboard** | `Cmd+Return` or `Shift+Return` (SC IDE style) |
+| **CodeActions** | `Cmd+.` → SC: Evaluate Selection/Line/Block |
+| **Tasks** | `Cmd+Shift+P` → task → SC: Evaluate... |
+
+Play buttons appear on parenthesized code blocks detected by the tree-sitter grammar.
 
 ### Server control
 
-Use Zed tasks (`Cmd+Shift+R`) for:
+Available via tasks (`Cmd+Shift+P` → "task: spawn") or CodeActions (`Cmd+.`):
+
 - **SC: Boot Server** - Start the audio server
 - **SC: Stop (CmdPeriod)** - Stop all sounds
 - **SC: Recompile** - Recompile the class library
 - **SC: Quit Server** - Quit the audio server
-- **SC: Post Window** - Tail the output log
+- **SC: Post Window** - View output log
+- **SC: Check Setup** - Diagnose configuration issues
+
+### CodeActions menu
+
+Press `Cmd+.` (or right-click) for context-sensitive actions:
+- Evaluate Selection/Line/Block
+- Server control (Boot, Stop, Recompile, Quit)
+- Help for the class under cursor
 
 ### Key bindings
 
-Two keymap files are provided. Copy your preferred one to `~/.config/zed/keymap.json`.
+Two keymap files are provided in `.zed/`. Copy your preferred one to `~/.config/zed/keymap.json`.
+
+**Note:** These assume Zed's default keybindings. If you've loaded a different base keymap (VS Code, Sublime, etc.), some shortcuts may conflict.
 
 #### SC IDE Style (`.zed/keymap.json`)
 
-Matches [SC IDE defaults](https://doc.sccode.org/Reference/KeyboardShortcuts.html). Best for users coming from SuperCollider IDE.
+Best for users coming from SuperCollider IDE. Matches [SC IDE defaults](https://doc.sccode.org/Reference/KeyboardShortcuts.html).
 
-| Function | Shortcut | SC IDE |
-|----------|----------|--------|
-| Evaluate | `Cmd+Return`, `Shift+Return` | ✓ |
-| Stop | `Cmd+.` | ✓ |
-| Boot Server | `Cmd+B` | ✓ |
-| Recompile | `Cmd+K` | ✓ |
-| Help | `Cmd+D` | ✓ |
+| Function | Shortcut |
+|----------|----------|
+| Evaluate | `Cmd+Return`, `Shift+Return` |
+| Stop | `Cmd+.` |
+| Boot Server | `Cmd+B` |
+| Recompile | `Cmd+K` |
+| Help | `Cmd+D` |
 
-**Note:** These override some Zed defaults (e.g., `Cmd+.` for CodeAction menu, `Cmd+D` for add selection).
+**Note:** These override some Zed defaults (e.g., `Cmd+.` opens CodeAction menu, `Cmd+D` adds to selection).
 
 #### VS Code Compatible (`.zed/keymap-vscode-compatible.json`)
 
-Uses consistent `Cmd+Shift` prefix to avoid conflicts with VS Code/Cursor/Zed defaults.
+Uses `Cmd+Shift` prefix to avoid conflicts with standard editor shortcuts.
 
 | Function | Shortcut |
 |----------|----------|
@@ -152,16 +173,30 @@ Uses consistent `Cmd+Shift` prefix to avoid conflicts with VS Code/Cursor/Zed de
 
 ## Troubleshooting
 
-### Validate configuration
+### Run the setup checker
+
+```bash
+scripts/check-setup.sh
+```
+
+This validates your configuration and shows diagnostic info.
+
+### Validate extension config
 
 ```bash
 scripts/validate-config.sh
 ```
 
+### Common issues
+
+- **Extension won't compile**: Ensure Rust is installed via [rustup](https://rustup.rs/), not Homebrew. Zed needs the `wasm32-wasip1` target.
+- **LSP not starting**: Check that the launcher path in Zed settings is correct and absolute.
+- **Play buttons appear but don't work**: The tasks aren't loaded. Make sure you're working from the cloned repo, or copy `.zed/tasks.json` to your project.
+- **No output visible**: Open the Post Window (`SC: Post Window` task) to see SuperCollider output.
+
 ### Check logs
 
-Post window output: `${SC_TMP_DIR:-$TMPDIR}/sclang_post.log`
-
+Post window output:
 ```bash
 tail -f /tmp/sclang_post.log
 ```
@@ -173,19 +208,13 @@ curl -X POST -d "1 + 1" http://127.0.0.1:57130/eval
 curl http://127.0.0.1:57130/health
 ```
 
-### Common issues
-
-- **Extension won't compile**: Ensure Rust is installed via rustup, not homebrew
-- **LSP not starting**: Check that the launcher path in settings is correct and absolute
-- **No play buttons**: Ensure `.zed/tasks.json` is present in your workspace
-
 ## Future
 
-The current installation method requires building from source. Distribution will change to make installation simpler (e.g., direct installation from Zed's extension gallery).
+Distribution will simplify — the goal is direct installation from Zed's extension gallery without building from source.
 
 ## Contributing
 
-Developer documentation lives in `.ai/` (start with `.ai/context.md`).
+Developer documentation lives in `.ai/` (start with `.ai/architecture.md`).
 
 ## License
 
