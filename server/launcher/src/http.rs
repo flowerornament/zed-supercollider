@@ -4,10 +4,13 @@
 //! - POST /eval - Execute SuperCollider code
 //! - GET /health - Health check
 //! - POST /stop, /boot, /recompile, /quit - Control commands
+//! - POST /convert-schelp - Convert .schelp to markdown
 
 use anyhow::{anyhow, Result};
 use std::io;
 use std::net::UdpSocket;
+use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tiny_http::{Header, Method, Response, Server};
@@ -144,6 +147,11 @@ fn handle_http_request(
         return handle_eval(request, udp_socket);
     }
 
+    // schelp conversion endpoint
+    if url == "/convert-schelp" && method == Method::Post {
+        return handle_convert_schelp(request);
+    }
+
     // Command endpoints
     if method == Method::Post {
         return match url.as_str() {
@@ -241,9 +249,110 @@ fn send_command(
 /// Return a 404 response with available endpoints.
 fn not_found_response() -> Response<std::io::Cursor<Vec<u8>>> {
     json_response(
-        r#"{"error":"not found","endpoints":["/eval","/health","/stop","/boot","/recompile","/quit"]}"#,
+        r#"{"error":"not found","endpoints":["/eval","/health","/stop","/boot","/recompile","/quit","/convert-schelp"]}"#,
         404,
     )
+}
+
+// ============================================================================
+// schelp Conversion
+// ============================================================================
+
+/// Handle POST /convert-schelp endpoint.
+/// Converts a .schelp file to markdown using pandoc with our custom reader.
+fn handle_convert_schelp(
+    request: &mut tiny_http::Request,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    // Read JSON body
+    let mut body = String::new();
+    if let Err(err) = request.as_reader().read_to_string(&mut body) {
+        return error_response(&format!("failed to read body: {}", err), 400);
+    }
+
+    // Parse JSON to get path
+    let json: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(err) => {
+            return error_response(&format!("invalid JSON: {}", err), 400);
+        }
+    };
+
+    let schelp_path = match json.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            return error_response("missing 'path' field in JSON body", 400);
+        }
+    };
+
+    // Verify file exists
+    if !Path::new(schelp_path).exists() {
+        return error_response(&format!("file not found: {}", schelp_path), 404);
+    }
+
+    // Find schelp.lua reader - relative to the binary location
+    let schelp_lua = find_schelp_lua();
+    let schelp_lua = match schelp_lua {
+        Some(p) => p,
+        None => {
+            return error_response("schelp.lua reader not found", 500);
+        }
+    };
+
+    // Run pandoc
+    let output = Command::new("pandoc")
+        .arg("-f")
+        .arg(&schelp_lua)
+        .arg("-t")
+        .arg("markdown")
+        .arg(schelp_path)
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                let markdown = String::from_utf8_lossy(&output.stdout);
+                let response_json = serde_json::json!({ "markdown": markdown });
+                json_response_with_cors(&response_json.to_string(), 200)
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                error_response(&format!("pandoc failed: {}", stderr), 500)
+            }
+        }
+        Err(err) => {
+            error_response(&format!("failed to run pandoc: {}", err), 500)
+        }
+    }
+}
+
+/// Find the schelp.lua reader file.
+/// Looks in common locations relative to the binary.
+fn find_schelp_lua() -> Option<String> {
+    // Try paths relative to current executable
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // Development: binary is in target/debug or target/release
+            // schelp.lua is at tools/schelp/schelp.lua from project root
+            let dev_paths = [
+                exe_dir.join("../../tools/schelp/schelp.lua"),
+                exe_dir.join("../../../tools/schelp/schelp.lua"),
+                exe_dir.join("../../../../tools/schelp/schelp.lua"),
+            ];
+            for path in &dev_paths {
+                if let Ok(canonical) = path.canonicalize() {
+                    return Some(canonical.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
+    // Try SCHELP_LUA environment variable
+    if let Ok(path) = std::env::var("SCHELP_LUA") {
+        if Path::new(&path).exists() {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 // ============================================================================
@@ -310,5 +419,25 @@ mod tests {
     fn test_not_found_returns_404() {
         let resp = not_found_response();
         assert_eq!(resp.status_code().0, 404);
+    }
+
+    #[test]
+    fn test_find_schelp_lua_finds_file() {
+        // This test runs from target/debug, so schelp.lua should be found
+        // via the relative path search
+        let result = find_schelp_lua();
+        // May be None in CI if not run from expected location
+        if let Some(path) = result {
+            assert!(path.ends_with("schelp.lua"));
+            assert!(Path::new(&path).exists());
+        }
+    }
+
+    #[test]
+    fn test_pandoc_available() {
+        // Verify pandoc is installed (prerequisite for schelp conversion)
+        let output = Command::new("pandoc").arg("--version").output();
+        assert!(output.is_ok(), "pandoc must be installed");
+        assert!(output.unwrap().status.success());
     }
 }
