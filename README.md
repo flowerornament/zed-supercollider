@@ -106,20 +106,33 @@ Use Zed tasks (`Cmd+Shift+R`) for:
 
 ### Key bindings
 
-The provided keymap (`.zed/keymap.json`) matches [SC IDE defaults](https://doc.sccode.org/Reference/KeyboardShortcuts.html) as closely as possible. Copy it to your personal keymap (`~/.config/zed/keymap.json`).
+Two keymap files are provided. Copy your preferred one to `~/.config/zed/keymap.json`.
 
-| Function | Shortcut | SC IDE Equivalent |
-|----------|----------|-------------------|
-| Evaluate | `Cmd+Return` or `Shift+Return` | Same |
-| Stop (CmdPeriod) | `Cmd+.` | Same |
-| Boot Server | `Cmd+B` | Same |
-| Recompile | `Cmd+K` | Same |
-| Help (Browser) | `Cmd+D` | Same |
-| Help (Terminal) | `Cmd+Shift+D` | — |
-| Help (Window) | `Cmd+Alt+D` | — |
-| Post Window | `Ctrl+Shift+P` | — |
+#### SC IDE Style (`.zed/keymap.json`)
 
-**Note:** Zed uses `Cmd+.` for the CodeAction menu by default. The keymap above overrides this for `.sc` and `.scd` files to restore the expected "stop all sounds" behavior.
+Matches [SC IDE defaults](https://doc.sccode.org/Reference/KeyboardShortcuts.html). Best for users coming from SuperCollider IDE.
+
+| Function | Shortcut | SC IDE |
+|----------|----------|--------|
+| Evaluate | `Cmd+Return`, `Shift+Return` | ✓ |
+| Stop | `Cmd+.` | ✓ |
+| Boot Server | `Cmd+B` | ✓ |
+| Recompile | `Cmd+K` | ✓ |
+| Help | `Cmd+D` | ✓ |
+
+**Note:** These override some Zed defaults (e.g., `Cmd+.` for CodeAction menu, `Cmd+D` for add selection).
+
+#### VS Code Compatible (`.zed/keymap-vscode-compatible.json`)
+
+Avoids conflicts with VS Code/Cursor keybindings. Best for users who want to keep standard editor shortcuts.
+
+| Function | Shortcut | Notes |
+|----------|----------|-------|
+| Evaluate | `Ctrl+Enter` | Common in notebooks/REPLs |
+| Stop | `Escape`, `Cmd+Shift+.` | Escape is SC IDE on Win/Linux |
+| Boot Server | `Ctrl+Shift+B` | Avoids sidebar toggle |
+| Recompile | `Ctrl+Shift+L` | SC IDE on Win/Linux |
+| Help | `F1` | Standard help key |
 
 ### LSP features
 

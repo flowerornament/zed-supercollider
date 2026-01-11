@@ -11,6 +11,7 @@ target/
 !.zed/README.md
 !.zed/tasks.json
 !.zed/keymap.json
+!.zed/keymap-vscode-compatible.json
 
 # macOS
 .DS_Store

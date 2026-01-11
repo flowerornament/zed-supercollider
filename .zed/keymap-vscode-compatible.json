@@ -1,0 +1,58 @@
+// SuperCollider key bindings for Zed - VS Code Compatible Edition.
+// Avoids conflicts with VS Code/Cursor default shortcuts.
+// Copy or merge into your personal keymap (~/.config/zed/keymap.json).
+//
+// Use this if you're used to VS Code keybindings and don't want conflicts.
+// For SC IDE-native keybindings, use keymap.json instead.
+[
+  // ============================================================
+  // SuperCollider files (.sc, .scd)
+  // ============================================================
+  {
+    "context": "Editor && (extension == sc || extension == scd)",
+    "bindings": {
+      // === Code Evaluation ===
+      // Ctrl+Enter - common in notebooks/REPLs, avoids Cmd+Enter (insert line)
+      "ctrl-enter": ["task::Spawn", { "task_name": "SC: Evaluate Selection" }],
+      // Ctrl+Shift+Enter - alternative
+      "ctrl-shift-enter": ["task::Spawn", { "task_name": "SC: Evaluate Line" }],
+
+      // === Stop (CRITICAL) ===
+      // Escape - SC IDE uses this on Windows/Linux
+      // Avoids Cmd+. which is Quick Fix in VS Code
+      "escape": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }],
+      // Cmd+Shift+. as alternative (doesn't conflict)
+      "cmd-shift-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }],
+
+      // === Server Control ===
+      // Ctrl+Shift+B - avoids Cmd+B (toggle sidebar)
+      "ctrl-shift-b": ["task::Spawn", { "task_name": "SC: Boot Server" }],
+      // Ctrl+Shift+Q - quit server
+      "ctrl-shift-q": ["task::Spawn", { "task_name": "SC: Quit Server" }],
+
+      // === Recompile ===
+      // Ctrl+Shift+L - SC IDE uses this on Windows/Linux
+      // Avoids Cmd+K which is a chord prefix in VS Code
+      "ctrl-shift-l": ["task::Spawn", { "task_name": "SC: Recompile" }],
+
+      // === Help ===
+      // F1 - standard help key, avoids Cmd+D (add to selection)
+      "f1": ["task::Spawn", { "task_name": "SC: Help (Browser)" }],
+      // Shift+F1 - terminal help
+      "shift-f1": ["task::Spawn", { "task_name": "SC: Help (Terminal)" }],
+      // Ctrl+Shift+D - avoids Cmd+D conflict
+      "ctrl-shift-d": ["task::Spawn", { "task_name": "SC: Help (Window)" }]
+    }
+  },
+
+  // ============================================================
+  // Global bindings (any file type)
+  // ============================================================
+  {
+    "context": "Editor",
+    "bindings": {
+      // Post window
+      "ctrl-shift-p": ["task::Spawn", { "task_name": "SC: Post Window" }]
+    }
+  }
+]
