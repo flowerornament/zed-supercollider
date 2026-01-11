@@ -98,11 +98,21 @@ Open any `.sc` or `.scd` file. The extension activates automatically.
 ### Server control
 
 Use Zed tasks (`Cmd+Shift+R`) for:
-- **SuperCollider: Boot** - Start the audio server
-- **SuperCollider: Stop** - Stop all sounds (CmdPeriod)
-- **SuperCollider: Recompile** - Recompile the class library
-- **SuperCollider: Quit** - Quit sclang
-- **SuperCollider: Post Window** - Tail the output log
+- **SC: Boot Server** - Start the audio server
+- **SC: Stop (CmdPeriod)** - Stop all sounds
+- **SC: Recompile** - Recompile the class library
+- **SC: Quit Server** - Quit the audio server
+- **SC: Post Window** - Tail the output log
+
+### Key bindings
+
+**Important:** In SuperCollider, `Cmd+.` is the universal "stop all sounds" shortcut. But Zed uses `Cmd+.` for the CodeAction menu. To restore expected behavior, copy the keybindings from `.zed/keymap.json` to your personal keymap (`~/.config/zed/keymap.json`).
+
+The provided keymap includes:
+- `Cmd+.` → Stop all sounds (for .sc and .scd files)
+- `Ctrl+Shift+H` → Help in terminal
+- `Ctrl+Alt+H` → Help in browser
+- `Ctrl+Alt+Shift+H` → Help in Zed window
 
 ### LSP features
 
