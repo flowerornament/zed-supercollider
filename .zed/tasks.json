@@ -82,7 +82,7 @@
     "command": "bash",
     "args": [
       "-c",
-      "printf \"%s\" \"$ZED_SELECTED_TEXT\" | curl -fsS -X POST -H \"Content-Type: text/plain\" --data-binary @- \"http://127.0.0.1:${SC_HTTP_PORT:-57130}/eval\""
+      "$ZED_WORKTREE_ROOT/tools/eval-selection.sh"
     ],
     "reveal": "never",
     "hide": "always",
