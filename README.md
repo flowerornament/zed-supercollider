@@ -124,15 +124,16 @@ Matches [SC IDE defaults](https://doc.sccode.org/Reference/KeyboardShortcuts.htm
 
 #### VS Code Compatible (`.zed/keymap-vscode-compatible.json`)
 
-Avoids conflicts with VS Code/Cursor keybindings. Best for users who want to keep standard editor shortcuts.
+Uses consistent `Cmd+Shift` prefix to avoid conflicts with VS Code/Cursor/Zed defaults.
 
-| Function | Shortcut | Notes |
-|----------|----------|-------|
-| Evaluate | `Ctrl+Enter` | Common in notebooks/REPLs |
-| Stop | `Escape`, `Cmd+Shift+.` | Escape is SC IDE on Win/Linux |
-| Boot Server | `Ctrl+Shift+B` | Avoids sidebar toggle |
-| Recompile | `Ctrl+Shift+L` | SC IDE on Win/Linux |
-| Help | `F1` | Standard help key |
+| Function | Shortcut |
+|----------|----------|
+| Evaluate | `Cmd+Shift+Return` |
+| Stop | `Escape` |
+| Boot Server | `Cmd+Shift+B` |
+| Quit Server | `Cmd+Shift+Q` |
+| Recompile | `Cmd+Shift+R` |
+| Help | `Cmd+Shift+D` |
 
 ### LSP features
 
