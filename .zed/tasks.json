@@ -1,15 +1,31 @@
 [
   {
+    "label": "DEBUG Env Vars",
+    "command": "bash",
+    "args": [
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/debug-env.sh"
+    ],
+    "reveal": "always",
+    "use_new_terminal": true
+  },
+  {
     "label": "SuperCollider: DEBUG Clipboard",
     "command": "bash",
-    "args": ["-c", "echo \"pbpaste output: [$(pbpaste)]\"; echo \"pbpaste exit code: $?\"; read"],
+    "args": [
+      "-c",
+      "echo \"pbpaste output: [$(pbpaste)]\"; echo \"pbpaste exit code: $?\"; read"
+    ],
     "reveal": "always",
     "use_new_terminal": true
   },
   {
     "label": "SuperCollider: Post Window",
     "command": "tail",
-    "args": ["-f", "/tmp/sclang_post.log"],
+    "args": [
+      "-f",
+      "/tmp/sclang_post.log"
+    ],
     "reveal": "always",
     "use_new_terminal": true,
     "hide": "never"
@@ -36,19 +52,41 @@
       "sc-eval"
     ],
     "reveal": "never",
-    "hide": "on_success",
+    "hide": "always",
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Evaluate (Manual)",
+    "label": "SuperCollider: Evaluate Line",
     "command": "bash",
     "args": [
-      "-lc",
-      "SC_PORT=\"$(printenv SC_HTTP_PORT 2>/dev/null || true)\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; CODE=\"$(printenv ZED_CUSTOM_code 2>/dev/null || true)\"; [ -z \"$CODE\" ] && CODE=\"$(printenv ZED_CUSTOM_CODE 2>/dev/null || true)\"; [ -z \"$CODE\" ] && exit 0; printf \"%s\" \"$CODE\" > /tmp/sc_eval_raw.txt; printf \"%s\" \"$CODE\" > /tmp/sc_eval_last.txt; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(printf \"%s\" \"$CODE\" | curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -H \"Content-Type: text/plain\" --data-binary @- \"http://127.0.0.1:${SC_PORT}/eval\"); printf \"HTTP %s\\n\" \"$HTTP\""
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/eval-line.sh"
     ],
-    "reveal": "always",
-    "use_new_terminal": true,
-    "hide": "never"
+    "reveal": "never",
+    "hide": "always",
+    "use_new_terminal": false
+  },
+  {
+    "label": "SuperCollider: Evaluate Block",
+    "command": "bash",
+    "args": [
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/eval-block.sh"
+    ],
+    "reveal": "never",
+    "hide": "always",
+    "use_new_terminal": false
+  },
+  {
+    "label": "SuperCollider: Evaluate \"$ZED_SELECTED_TEXT\"",
+    "command": "bash",
+    "args": [
+      "-c",
+      "printf \"%s\" \"$ZED_SELECTED_TEXT\" | curl -fsS -X POST -H \"Content-Type: text/plain\" --data-binary @- \"http://127.0.0.1:${SC_HTTP_PORT:-57130}/eval\""
+    ],
+    "reveal": "never",
+    "hide": "always",
+    "use_new_terminal": false
   },
   {
     "label": "SuperCollider: Boot Server",
@@ -58,7 +96,7 @@
       "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/boot\"); printf \"HTTP %s\\n\" \"$HTTP\""
     ],
     "reveal": "never",
-    "hide": "on_success",
+    "hide": "always",
     "use_new_terminal": false
   },
   {
@@ -69,7 +107,7 @@
       "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/stop\"); printf \"HTTP %s\\n\" \"$HTTP\""
     ],
     "reveal": "never",
-    "hide": "on_success",
+    "hide": "always",
     "use_new_terminal": false
   },
   {
@@ -80,7 +118,7 @@
       "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/recompile\"); printf \"HTTP %s\\n\" \"$HTTP\""
     ],
     "reveal": "never",
-    "hide": "on_success",
+    "hide": "always",
     "use_new_terminal": false
   },
   {
@@ -91,7 +129,7 @@
       "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/quit\"); printf \"HTTP %s\\n\" \"$HTTP\""
     ],
     "reveal": "never",
-    "hide": "on_success",
+    "hide": "always",
     "use_new_terminal": false
   },
   {
@@ -102,6 +140,17 @@
       "PID_FILE=\"${SC_TMP_DIR:-${TMPDIR:-/tmp}}/sc_launcher.pid\"; [ ! -f \"$PID_FILE\" ] && PID_FILE=\"/tmp/sc_launcher.pid\"; if [ ! -f \"$PID_FILE\" ]; then echo \"No PID file found; nothing to stop\"; exit 0; fi; echo \"Using: $PID_FILE\"; LAUNCHER_PID=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get(\"launcher_pid\",\"\"))' \"$PID_FILE\" 2>/dev/null); SCLANG_PID=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get(\"sclang_pid\",\"\"))' \"$PID_FILE\" 2>/dev/null); if [ -n \"$SCLANG_PID\" ] && ps -p \"$SCLANG_PID\" >/dev/null 2>&1; then echo \"Stopping sclang (pid $SCLANG_PID)\"; kill \"$SCLANG_PID\" 2>/dev/null || true; fi; if [ -n \"$LAUNCHER_PID\" ] && ps -p \"$LAUNCHER_PID\" >/dev/null 2>&1; then echo \"Stopping launcher (pid $LAUNCHER_PID)\"; kill \"$LAUNCHER_PID\" 2>/dev/null || true; fi; rm -f \"$PID_FILE\"; echo \"Done\""
     ],
     "reveal": "always"
+  },
+  {
+    "label": "SuperCollider: Help (Cursor)",
+    "command": "bash",
+    "args": [
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/help-cursor.sh"
+    ],
+    "reveal": "always",
+    "use_new_terminal": true,
+    "hide": "never"
   },
   {
     "label": "SuperCollider: Help",
@@ -123,7 +172,7 @@
     ],
     "reveal": "always",
     "use_new_terminal": true,
-    "hide": "on_success"
+    "hide": "always"
   },
   {
     "label": "SuperCollider: Help (Preview)",
@@ -134,6 +183,6 @@
     ],
     "reveal": "always",
     "use_new_terminal": true,
-    "hide": "on_success"
+    "hide": "always"
   }
 ]
