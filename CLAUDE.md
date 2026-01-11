@@ -1,3 +1,3 @@
 # Claude Code Instructions
 
-See [AGENTS.md](AGENTS.md) for project guidance and workflow.
+**BEFORE ANY WORK: Read [AGENTS.md](AGENTS.md) first.** It contains critical git workflow rules (commits go to dev, not main) and project context.
