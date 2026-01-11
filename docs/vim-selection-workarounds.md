@@ -1,5 +1,7 @@
 # ZED_SELECTED_TEXT Vim Mode Workarounds
 
+> **Note**: This documents workarounds for task-based help. The preferred solution is LSP hover - cursor on symbol → press `K` → see docs. Once hover integration is complete (issue 52i), these workarounds won't be needed.
+
 ## Problem
 
 `ZED_SELECTED_TEXT` environment variable is empty when Zed's vim mode is enabled, even with text visually selected. This is a Zed bug where vim exits visual mode before the selection is captured during task spawn.
