@@ -75,7 +75,7 @@ Replace `/absolute/path/to/zed-supercollider` with your actual clone location.
 ### 6. Verify installation
 
 1. Open any `.sc` or `.scd` file in the cloned repo (e.g., `examples/` if present, or create a test file)
-2. Run `SC: Check Setup` from tasks (`Cmd+Shift+P` → "task: spawn" → search "check")
+2. Run `SC: Check Setup` from tasks (`Cmd+Shift+R` → search "check")
 3. You should see a play button (▶) appear on parenthesized blocks like `(1 + 1)`
 
 ## Usage
@@ -84,13 +84,20 @@ Replace `/absolute/path/to/zed-supercollider` with your actual clone location.
 
 **Important:** Work on SuperCollider files from within the cloned `zed-supercollider` directory. The tasks and keymaps are already configured there.
 
-To use SuperCollider in other projects, copy `.zed/tasks.json` and optionally `.zed/keymap.json` to that project's `.zed/` folder.
+To use SuperCollider in other projects, copy `.zed/tasks.json` and optionally `.zed/keymap.json` to that project's `.zed/` folder. The LSP settings (with the absolute path to `sc_launcher`) are in your global Zed config, so they'll work anywhere.
 
 ### Post Window
 
 SuperCollider output (print statements, errors, server messages) goes to the Post Window. Open it with:
 - Task: `SC: Post Window` (runs `tail -f` on the log file)
 - Or directly: `tail -f /tmp/sclang_post.log`
+
+### Tasks menu
+
+Most SuperCollider commands are available in the **tasks menu**:
+- `Cmd+Shift+R` (or `Cmd+Shift+P` → "task: spawn")
+
+This is separate from the CodeActions menu (`Cmd+.`), which shows context-sensitive actions for the code under your cursor.
 
 ### Code evaluation
 
@@ -100,14 +107,14 @@ Multiple ways to evaluate code:
 |--------|-----|
 | **Play button** | Click ▶ on parenthesized blocks `(...)` |
 | **Keyboard** | `Cmd+Return` or `Shift+Return` (SC IDE style) |
+| **Tasks menu** | `Cmd+Shift+R` → SC: Evaluate Selection/Line/Block |
 | **CodeActions** | `Cmd+.` → SC: Evaluate Selection/Line/Block |
-| **Tasks** | `Cmd+Shift+P` → task → SC: Evaluate... |
 
 Play buttons appear on parenthesized code blocks detected by the tree-sitter grammar.
 
 ### Server control
 
-Available via tasks (`Cmd+Shift+P` → "task: spawn") or CodeActions (`Cmd+.`):
+Available via tasks (`Cmd+Shift+R`) or CodeActions (`Cmd+.`):
 
 - **SC: Boot Server** - Start the audio server
 - **SC: Stop (CmdPeriod)** - Stop all sounds
