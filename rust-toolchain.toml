@@ -1,4 +1,4 @@
 [toolchain]
-channel = "1.82.0"
+channel = "stable"
 components = ["rustfmt", "clippy"]
-targets = ["wasm32-wasip1"]
+targets = ["wasm32-wasip2"]
