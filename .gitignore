@@ -21,4 +21,6 @@ target/
 
 # Build artifacts
 grammars/
-tests/**/target/
+
+# Local test files (not tracked)
+tests/

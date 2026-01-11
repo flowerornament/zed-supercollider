@@ -221,7 +221,7 @@ Distribution will simplify — the goal is direct installation from Zed's extens
 
 ## Contributing
 
-Developer documentation lives in `.ai/` (start with `.ai/architecture.md`).
+Developer documentation lives in `.agents/` (start with `.agents/architecture.md`).
 
 ## License
 

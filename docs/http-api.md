@@ -89,6 +89,29 @@ Health check endpoint.
 curl http://127.0.0.1:57130/health
 ```
 
+### POST /convert-schelp
+
+Convert a .schelp help file to markdown. Used for hover documentation.
+
+**Request:**
+- Content-Type: `application/json`
+- Body: `{"path": "/path/to/File.schelp"}`
+
+**Response:**
+- `200 OK` with body `{"markdown": "..."}`
+- `400 Bad Request` - missing path or invalid JSON
+- `404 Not Found` - file doesn't exist
+- `500 Internal Server Error` - pandoc not available or conversion failed
+
+**Example:**
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"path": "/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/SinOsc.schelp"}' \
+  http://127.0.0.1:57130/convert-schelp
+```
+
+**Note:** Requires pandoc to be installed and `tools/schelp/schelp.lua` to be accessible.
+
 ## Error Handling
 
 All POST endpoints return `202 Accepted` on successful submission. If the underlying UDP communication fails (e.g., sclang not responding), the endpoint returns:

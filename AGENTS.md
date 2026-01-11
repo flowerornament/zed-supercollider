@@ -13,12 +13,12 @@ Ship a stable Zed extension for SuperCollider with navigation, completion, hover
 
 ## Documentation Map
 
-- `.ai/architecture.md` - System diagram and mental model
-- `.ai/conventions.md` - Code rules for SC/Rust/Zed
-- `.ai/commands.md` - Build, verify, and troubleshoot commands
-- `.ai/decisions/` - ADRs for architecture choices
-- `.ai/prompts/` - Debug checklists
-- `.ai/research/` - Past investigations
+- `.agents/architecture.md` - System diagram and mental model
+- `.agents/conventions.md` - Code rules for SC/Rust/Zed
+- `.agents/commands.md` - Build, verify, and troubleshoot commands
+- `.agents/decisions/` - ADRs for architecture choices
+- `.agents/prompts/` - Debug checklists
+- `.agents/research/` - Past investigations
 
 ## Anti-patterns (do not regress)
 

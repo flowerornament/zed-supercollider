@@ -15,7 +15,7 @@ The hover integration approach below was implemented and tested, but **rejected*
 
 **New approach**: Use LSP CodeActions
 - `cmd+.` on class name → "Show Help for SinOsc" → opens docs in new tab
-- See: `.ai/decisions/004-codeaction-for-help.md`
+- See: `.agents/decisions/004-codeaction-for-help.md`
 - Implementation: beads task `zed-supercollider-0mr`
 
 **What's already built and working**:

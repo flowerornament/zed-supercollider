@@ -47,7 +47,7 @@ Flow: User clicks play button → runnables.scm captures code → Task POSTs to 
 - Two communication channels (LSP + HTTP)
 
 **Implementation:**
-HTTP endpoints: /eval, /stop, /boot, /recompile, /quit, /health. Tasks POST to endpoints, runnables (via runnables.scm) provide play buttons. See `.ai/architecture.md` for details.
+HTTP endpoints: /eval, /stop, /boot, /recompile, /quit, /health. Tasks POST to endpoints, runnables (via runnables.scm) provide play buttons. See `.agents/architecture.md` for details.
 
 **Validation:**
 Play buttons appear in gutter, clicking executes code, curl testing works independently, keybindings work via task::Spawn.
@@ -55,4 +55,4 @@ Play buttons appear in gutter, clicking executes code, curl testing works indepe
 ## References
 
 - [Zed Issue #13756](https://github.com/zed-industries/zed/issues/13756) - workspace/executeCommand limitation
-- See `.ai/architecture.md` for dual-channel architecture details
+- See `.agents/architecture.md` for dual-channel architecture details

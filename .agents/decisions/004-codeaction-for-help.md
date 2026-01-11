@@ -78,5 +78,5 @@ Use LSP CodeActions for help docs lookup.
 ## References
 
 - Plan file: `/Users/morgan/.claude/plans/synchronous-moseying-cook.md`
-- Research: `.ai/research/help-docs-feature.md`
+- Research: `.agents/research/help-docs-feature.md`
 - Related: ADR-001 (HTTP vs LSP for evaluation)
