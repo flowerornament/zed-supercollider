@@ -1,25 +1,5 @@
 [
   {
-    "label": "DEBUG Env Vars",
-    "command": "bash",
-    "args": [
-      "-c",
-      "$ZED_WORKTREE_ROOT/tools/debug-env.sh"
-    ],
-    "reveal": "always",
-    "use_new_terminal": true
-  },
-  {
-    "label": "SuperCollider: DEBUG Clipboard",
-    "command": "bash",
-    "args": [
-      "-c",
-      "echo \"pbpaste output: [$(pbpaste)]\"; echo \"pbpaste exit code: $?\"; read"
-    ],
-    "reveal": "always",
-    "use_new_terminal": true
-  },
-  {
     "label": "SuperCollider: Post Window",
     "command": "tail",
     "args": [
@@ -45,8 +25,8 @@
     "label": "SuperCollider: Evaluate",
     "command": "bash",
     "args": [
-      "-lc",
-      "SC_PORT=\"$(printenv SC_HTTP_PORT 2>/dev/null || true)\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; CODE=\"$(printenv ZED_CUSTOM_code 2>/dev/null || true)\"; [ -z \"$CODE\" ] && CODE=\"$(printenv ZED_CUSTOM_CODE 2>/dev/null || true)\"; [ -z \"$CODE\" ] && exit 0; printf \"%s\" \"$CODE\" > /tmp/sc_eval_raw.txt; printf \"%s\" \"$CODE\" > /tmp/sc_eval_last.txt; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(printf \"%s\" \"$CODE\" | curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -H \"Content-Type: text/plain\" --data-binary @- \"http://127.0.0.1:${SC_PORT}/eval\"); printf \"HTTP %s\\n\" \"$HTTP\""
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/eval.sh"
     ],
     "tags": [
       "sc-eval"
@@ -92,8 +72,8 @@
     "label": "SuperCollider: Boot Server",
     "command": "bash",
     "args": [
-      "-lc",
-      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/boot\"); printf \"HTTP %s\\n\" \"$HTTP\""
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/boot-server.sh"
     ],
     "reveal": "never",
     "hide": "always",
@@ -103,8 +83,8 @@
     "label": "SuperCollider: Stop (CmdPeriod)",
     "command": "bash",
     "args": [
-      "-lc",
-      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/stop\"); printf \"HTTP %s\\n\" \"$HTTP\""
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/stop.sh"
     ],
     "reveal": "never",
     "hide": "always",
@@ -114,8 +94,8 @@
     "label": "SuperCollider: Recompile",
     "command": "bash",
     "args": [
-      "-lc",
-      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/recompile\"); printf \"HTTP %s\\n\" \"$HTTP\""
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/recompile.sh"
     ],
     "reveal": "never",
     "hide": "always",
@@ -125,39 +105,29 @@
     "label": "SuperCollider: Quit Server",
     "command": "bash",
     "args": [
-      "-lc",
-      "SC_PORT=\"${SC_HTTP_PORT:-57130}\"; case \"$SC_PORT\" in \"\"|0|*[!0-9]*) SC_PORT=57130 ;; esac; export NO_PROXY=\"${NO_PROXY:-127.0.0.1,localhost}\"; HTTP=$(curl --noproxy \"*\" -fsS -o /dev/null -w \"%{http_code}\" -X POST \"http://127.0.0.1:${SC_PORT}/quit\"); printf \"HTTP %s\\n\" \"$HTTP\""
+      "-c",
+      "$ZED_WORKTREE_ROOT/tools/quit-server.sh"
     ],
     "reveal": "never",
     "hide": "always",
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Kill All (Emergency Cleanup)",
-    "command": "bash",
-    "args": [
-      "-lc",
-      "PID_FILE=\"${SC_TMP_DIR:-${TMPDIR:-/tmp}}/sc_launcher.pid\"; [ ! -f \"$PID_FILE\" ] && PID_FILE=\"/tmp/sc_launcher.pid\"; if [ ! -f \"$PID_FILE\" ]; then echo \"No PID file found; nothing to stop\"; exit 0; fi; echo \"Using: $PID_FILE\"; LAUNCHER_PID=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get(\"launcher_pid\",\"\"))' \"$PID_FILE\" 2>/dev/null); SCLANG_PID=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get(\"sclang_pid\",\"\"))' \"$PID_FILE\" 2>/dev/null); if [ -n \"$SCLANG_PID\" ] && ps -p \"$SCLANG_PID\" >/dev/null 2>&1; then echo \"Stopping sclang (pid $SCLANG_PID)\"; kill \"$SCLANG_PID\" 2>/dev/null || true; fi; if [ -n \"$LAUNCHER_PID\" ] && ps -p \"$LAUNCHER_PID\" >/dev/null 2>&1; then echo \"Stopping launcher (pid $LAUNCHER_PID)\"; kill \"$LAUNCHER_PID\" 2>/dev/null || true; fi; rm -f \"$PID_FILE\"; echo \"Done\""
-    ],
-    "reveal": "always"
-  },
-  {
-    "label": "SuperCollider: Help (Cursor)",
+    "label": "SuperCollider: Kill All",
     "command": "bash",
     "args": [
       "-c",
-      "$ZED_WORKTREE_ROOT/tools/help-cursor.sh"
+      "$ZED_WORKTREE_ROOT/tools/kill-all.sh"
     ],
     "reveal": "always",
-    "use_new_terminal": true,
-    "hide": "never"
+    "use_new_terminal": true
   },
   {
-    "label": "SuperCollider: Help",
+    "label": "SuperCollider: Help (Terminal)",
     "command": "bash",
     "args": [
       "-c",
-      "SYMBOL=$(pbpaste 2>/dev/null | head -1 | awk '{print $1}' | sed 's/[.([{].*$//'); [ -z \"$SYMBOL\" ] && { printf 'Class: '; read SYMBOL; }; [ -z \"$SYMBOL\" ] && exit 1; HELP=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ -f \"$HELP\" ]; then READER=\"$ZED_WORKTREE_ROOT/tools/schelp/schelp.lua\"; if [ -f \"$READER\" ] && command -v pandoc >/dev/null && command -v glow >/dev/null; then pandoc -f \"$READER\" -t markdown \"$HELP\" | glow -p; elif [ -f \"$READER\" ] && command -v pandoc >/dev/null; then pandoc -f \"$READER\" -t markdown \"$HELP\" | less; else less \"$HELP\"; fi; else echo \"Not found: $SYMBOL\"; fi"
+      "$ZED_WORKTREE_ROOT/tools/help-terminal.sh"
     ],
     "reveal": "always",
     "use_new_terminal": true,
@@ -168,21 +138,21 @@
     "command": "bash",
     "args": [
       "-c",
-      "SYMBOL=$(pbpaste 2>/dev/null | head -1 | awk '{print $1}' | sed 's/[.([{].*$//'); [ -z \"$SYMBOL\" ] && { printf 'Class: '; read SYMBOL; }; [ -z \"$SYMBOL\" ] && exit 1; echo \"Opening docs for: $SYMBOL\"; open \"https://docs.supercollider.online/Classes/$SYMBOL\""
+      "$ZED_WORKTREE_ROOT/tools/help-browser.sh"
     ],
     "reveal": "always",
     "use_new_terminal": true,
-    "hide": "always"
+    "hide": "never"
   },
   {
-    "label": "SuperCollider: Help (Preview)",
+    "label": "SuperCollider: Help (Window)",
     "command": "bash",
     "args": [
       "-c",
-      "SYMBOL=$(pbpaste 2>/dev/null | head -1 | awk '{print $1}' | sed 's/[.([{].*$//'); [ -z \"$SYMBOL\" ] && { printf 'Class: '; read SYMBOL; }; [ -z \"$SYMBOL\" ] && exit 1; HELP=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; if [ ! -f \"$HELP\" ]; then echo \"Not found: $SYMBOL\"; sleep 1; exit 1; fi; READER=\"$ZED_WORKTREE_ROOT/tools/schelp/schelp.lua\"; OUT=\"/tmp/${SYMBOL}.md\"; pandoc -f \"$READER\" -t markdown \"$HELP\" -o \"$OUT\" && zed \"$OUT\""
+      "$ZED_WORKTREE_ROOT/tools/help-window.sh"
     ],
     "reveal": "always",
     "use_new_terminal": true,
-    "hide": "always"
+    "hide": "never"
   }
 ]
