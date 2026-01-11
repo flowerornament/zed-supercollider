@@ -1,6 +1,6 @@
 [
   {
-    "label": "SuperCollider: Post Window",
+    "label": "SC: Post Window",
     "command": "tail",
     "args": [
       "-f",
@@ -11,7 +11,7 @@
     "hide": "never"
   },
   {
-    "label": "SuperCollider: Check Setup",
+    "label": "SC: Check Setup",
     "command": "bash",
     "args": [
       "-lc",
@@ -22,7 +22,7 @@
     "hide": "never"
   },
   {
-    "label": "SuperCollider: Evaluate",
+    "label": "SC: Evaluate",
     "command": "bash",
     "args": [
       "-c",
@@ -36,7 +36,7 @@
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Evaluate Line",
+    "label": "SC: Evaluate Line",
     "command": "bash",
     "args": [
       "-c",
@@ -47,7 +47,7 @@
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Evaluate Block",
+    "label": "SC: Evaluate Block",
     "command": "bash",
     "args": [
       "-c",
@@ -58,7 +58,7 @@
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Evaluate \"$ZED_SELECTED_TEXT\"",
+    "label": "SC: Evaluate \"$ZED_SELECTED_TEXT\"",
     "command": "bash",
     "args": [
       "-c",
@@ -69,7 +69,7 @@
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Boot Server",
+    "label": "SC: Boot Server",
     "command": "bash",
     "args": [
       "-c",
@@ -80,7 +80,7 @@
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Stop (CmdPeriod)",
+    "label": "SC: Stop (CmdPeriod)",
     "command": "bash",
     "args": [
       "-c",
@@ -91,7 +91,7 @@
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Recompile",
+    "label": "SC: Recompile",
     "command": "bash",
     "args": [
       "-c",
@@ -102,7 +102,7 @@
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Quit Server",
+    "label": "SC: Quit Server",
     "command": "bash",
     "args": [
       "-c",
@@ -113,7 +113,7 @@
     "use_new_terminal": false
   },
   {
-    "label": "SuperCollider: Kill All",
+    "label": "SC: Kill All",
     "command": "bash",
     "args": [
       "-c",
@@ -123,7 +123,7 @@
     "use_new_terminal": true
   },
   {
-    "label": "SuperCollider: Help (Terminal)",
+    "label": "SC: Help (Terminal)",
     "command": "bash",
     "args": [
       "-c",
@@ -134,7 +134,7 @@
     "hide": "never"
   },
   {
-    "label": "SuperCollider: Help (Browser)",
+    "label": "SC: Help (Browser)",
     "command": "bash",
     "args": [
       "-c",
@@ -145,7 +145,7 @@
     "hide": "never"
   },
   {
-    "label": "SuperCollider: Help (Window)",
+    "label": "SC: Help (Window)",
     "command": "bash",
     "args": [
       "-c",
