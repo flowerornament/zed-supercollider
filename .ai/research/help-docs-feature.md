@@ -1,8 +1,31 @@
 # Help Docs Feature
 
-**Goal**: Cursor on symbol → press `K` (or hover) → see SuperCollider help documentation
+**Goal**: Cursor on symbol → invoke action → see SuperCollider help documentation
 
-**Status**: Ready to implement. All pieces exist, just need to connect them.
+**Status**: REVISED - Using CodeAction approach instead of Hover. See ADR-004.
+
+---
+
+## UPDATE 2026-01-10: CodeAction Approach (Recommended)
+
+The hover integration approach below was implemented and tested, but **rejected** because:
+1. Conflates two features: hover (implementation info) vs docs lookup
+2. Changes existing behavior users relied on
+3. Makes hover responses very long
+
+**New approach**: Use LSP CodeActions
+- `cmd+.` on class name → "Show Help for SinOsc" → opens docs in new tab
+- See: `.ai/decisions/004-codeaction-for-help.md`
+- Implementation: beads task `zed-supercollider-0mr`
+
+**What's already built and working**:
+- `/convert-schelp` endpoint in launcher
+- `LSPDatabase.findSchelpPath()` and `fetchSchelpMarkdown()` helpers
+- Just need to wire up via CodeAction instead of Hover
+
+---
+
+## HISTORICAL: Hover Approach (Rejected)
 
 ---
 
