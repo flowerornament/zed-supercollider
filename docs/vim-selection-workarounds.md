@@ -146,7 +146,7 @@ For best experience with vim mode, use a cascading fallback:
 {
   "label": "SC Help (Clipboard)",
   "command": "bash",
-  "args": ["-c", "SYMBOL=$(pbpaste | tr -d '\\n' | head -c 100); [ -z \"$SYMBOL\" ] && SYMBOL=\"${ZED_SYMBOL:-}\"; [ -z \"$SYMBOL\" ] && { printf 'Class: '; read SYMBOL; }; HELP=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; [ -f \"$HELP\" ] && pandoc -f \"$ZED_WORKTREE_ROOT/tools/schelp/schelp.lua\" -t markdown \"$HELP\" | glow -p || echo \"Not found: $SYMBOL\""],
+  "args": ["-c", "SYMBOL=$(pbpaste | head -1 | awk '{print $1}' | sed 's/[.([{].*$//'); [ -z \"$SYMBOL\" ] && SYMBOL=\"${ZED_SYMBOL:-}\"; [ -z \"$SYMBOL\" ] && { printf 'Class: '; read SYMBOL; }; HELP=\"/Applications/SuperCollider.app/Contents/Resources/HelpSource/Classes/${SYMBOL}.schelp\"; [ -f \"$HELP\" ] && pandoc -f \"$ZED_WORKTREE_ROOT/tools/schelp/schelp.lua\" -t markdown \"$HELP\" | glow -p || echo \"Not found: $SYMBOL\""],
   "reveal": "always",
   "use_new_terminal": true
 }
