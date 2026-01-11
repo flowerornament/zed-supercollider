@@ -1,0 +1,31 @@
+// Key bindings for SuperCollider in Zed.
+// Copy or merge into your personal keymap (~/.config/zed/keymap.json).
+//
+// IMPORTANT: In SuperCollider, Cmd+. is the universal "stop all sounds"
+// shortcut. But Zed uses Cmd+. for the CodeAction menu. The binding below
+// restores the expected behavior for .scd files.
+[
+  {
+    "context": "Editor && extension == scd",
+    "bindings": {
+      // Restore Cmd+. as "stop all sounds" for SC files
+      "cmd-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }]
+    }
+  },
+  {
+    "context": "Editor && extension == sc",
+    "bindings": {
+      // Restore Cmd+. as "stop all sounds" for SC files
+      "cmd-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }]
+    }
+  },
+  {
+    "context": "Editor",
+    "bindings": {
+      // Help commands
+      "ctrl-shift-h": ["task::Spawn", { "task_name": "SC: Help (Terminal)" }],
+      "ctrl-alt-h": ["task::Spawn", { "task_name": "SC: Help (Browser)" }],
+      "ctrl-alt-shift-h": ["task::Spawn", { "task_name": "SC: Help (Window)" }]
+    }
+  }
+]

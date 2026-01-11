@@ -10,6 +10,7 @@ target/
 .zed/*
 !.zed/README.md
 !.zed/tasks.json
+!.zed/keymap.json
 
 # macOS
 .DS_Store
