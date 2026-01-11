@@ -106,13 +106,20 @@ Use Zed tasks (`Cmd+Shift+R`) for:
 
 ### Key bindings
 
-**Important:** In SuperCollider, `Cmd+.` is the universal "stop all sounds" shortcut. But Zed uses `Cmd+.` for the CodeAction menu. To restore expected behavior, copy the keybindings from `.zed/keymap.json` to your personal keymap (`~/.config/zed/keymap.json`).
+The provided keymap (`.zed/keymap.json`) matches [SC IDE defaults](https://doc.sccode.org/Reference/KeyboardShortcuts.html) as closely as possible. Copy it to your personal keymap (`~/.config/zed/keymap.json`).
 
-The provided keymap includes:
-- `Cmd+.` → Stop all sounds (for .sc and .scd files)
-- `Ctrl+Shift+H` → Help in terminal
-- `Ctrl+Alt+H` → Help in browser
-- `Ctrl+Alt+Shift+H` → Help in Zed window
+| Function | Shortcut | SC IDE Equivalent |
+|----------|----------|-------------------|
+| Evaluate | `Cmd+Return` or `Shift+Return` | Same |
+| Stop (CmdPeriod) | `Cmd+.` | Same |
+| Boot Server | `Cmd+B` | Same |
+| Recompile | `Cmd+K` | Same |
+| Help (Browser) | `Cmd+D` | Same |
+| Help (Terminal) | `Cmd+Shift+D` | — |
+| Help (Window) | `Cmd+Alt+D` | — |
+| Post Window | `Ctrl+Shift+P` | — |
+
+**Note:** Zed uses `Cmd+.` for the CodeAction menu by default. The keymap above overrides this for `.sc` and `.scd` files to restore the expected "stop all sounds" behavior.
 
 ### LSP features
 

@@ -1,31 +1,50 @@
-// Key bindings for SuperCollider in Zed.
+// SuperCollider key bindings for Zed.
+// Matches SC IDE defaults as closely as possible.
 // Copy or merge into your personal keymap (~/.config/zed/keymap.json).
 //
-// IMPORTANT: In SuperCollider, Cmd+. is the universal "stop all sounds"
-// shortcut. But Zed uses Cmd+. for the CodeAction menu. The binding below
-// restores the expected behavior for .scd files.
+// SC IDE Reference: https://doc.sccode.org/Reference/KeyboardShortcuts.html
 [
+  // ============================================================
+  // SuperCollider files (.sc, .scd)
+  // ============================================================
   {
-    "context": "Editor && extension == scd",
+    "context": "Editor && (extension == sc || extension == scd)",
     "bindings": {
-      // Restore Cmd+. as "stop all sounds" for SC files
-      "cmd-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }]
+      // === Code Evaluation ===
+      // SC IDE: Cmd+Return or Shift+Return to evaluate
+      "shift-enter": ["task::Spawn", { "task_name": "SC: Evaluate Selection" }],
+      "cmd-enter": ["task::Spawn", { "task_name": "SC: Evaluate Selection" }],
+
+      // === Stop (CRITICAL) ===
+      // SC IDE: Cmd+. stops all sounds - this is muscle memory for all SC users
+      // Zed uses Cmd+. for CodeAction menu, so we override it here
+      "cmd-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }],
+
+      // === Server Control ===
+      // SC IDE: Cmd+B boots server
+      "cmd-b": ["task::Spawn", { "task_name": "SC: Boot Server" }],
+
+      // === Recompile ===
+      // SC IDE: Cmd+K recompiles (some versions use Cmd+Shift+L)
+      "cmd-k": ["task::Spawn", { "task_name": "SC: Recompile" }],
+
+      // === Help ===
+      // SC IDE: Cmd+D opens help for word at cursor
+      "cmd-d": ["task::Spawn", { "task_name": "SC: Help (Browser)" }],
+      // Alternative help bindings
+      "cmd-shift-d": ["task::Spawn", { "task_name": "SC: Help (Terminal)" }],
+      "cmd-alt-d": ["task::Spawn", { "task_name": "SC: Help (Window)" }]
     }
   },
-  {
-    "context": "Editor && extension == sc",
-    "bindings": {
-      // Restore Cmd+. as "stop all sounds" for SC files
-      "cmd-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }]
-    }
-  },
+
+  // ============================================================
+  // Global bindings (any file type)
+  // ============================================================
   {
     "context": "Editor",
     "bindings": {
-      // Help commands
-      "ctrl-shift-h": ["task::Spawn", { "task_name": "SC: Help (Terminal)" }],
-      "ctrl-alt-h": ["task::Spawn", { "task_name": "SC: Help (Browser)" }],
-      "ctrl-alt-shift-h": ["task::Spawn", { "task_name": "SC: Help (Window)" }]
+      // Post window (useful even outside SC files)
+      "ctrl-shift-p": ["task::Spawn", { "task_name": "SC: Post Window" }]
     }
   }
 ]
