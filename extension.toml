@@ -9,7 +9,7 @@ languages = ["languages/SuperCollider"]
 
 [grammars.supercollider]
 repository = "https://github.com/flowerornament/tree-sitter-supercollider"
-rev = "5c2dcbb073fc2446f4cb6b6f6f28b8cbad1cf491"
+rev = "158aa7599636467416918475d31c9ce72b16facb"
 
 [language_servers.supercollider]
 language = "SuperCollider"
