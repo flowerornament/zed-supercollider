@@ -6,19 +6,67 @@ This project uses **bd** (beads) for issue tracking. Run `bd prime` for workflow
 
 Ship a stable Zed extension for SuperCollider with navigation, completion, hover, and play-button evaluation. Architecture is dual-channel: LSP over stdio↔UDP for intelligence, HTTP for eval/control (Zed extensions cannot call `workspace/executeCommand`).
 
-**Current state (2026-01-11):**
-- Working: go-to-definition, hover, completion, references, eval/control, help docs, CodeLens/CodeAction
-- Caching: LRU cache for definition/reference lookups
-- Known: "Non Boolean in test" crash in references provider (edge case)
-
 ## Documentation Map
 
 - `.agents/architecture.md` - System diagram and mental model
 - `.agents/conventions.md` - Code rules for SC/Rust/Zed
 - `.agents/commands.md` - Build, verify, and troubleshoot commands
 - `.agents/decisions/` - ADRs for architecture choices
-- `.agents/prompts/` - Debug checklists
-- `.agents/research/` - Past investigations
+- `server/launcher/README.md` - Launcher usage and quark discovery
+- `server/launcher/http-api.md` - HTTP endpoint details
+
+## Building
+
+Use the build script to compile everything (grammar, launcher, extension):
+
+```bash
+./scripts/build.sh          # Full build (release)
+./scripts/build.sh --debug  # Debug build
+```
+
+**Requirements:** `emscripten` (for grammar wasm compilation), `tree-sitter-cli`
+
+The build script:
+1. Compiles tree-sitter grammar to `grammars/supercollider.wasm`
+2. Builds the launcher binary
+3. Builds the Zed extension wasm
+4. Runs tests
+
+After building, reinstall the dev extension in Zed and restart.
+
+## Grammar Development
+
+The tree-sitter grammar is in `grammars/supercollider/` (a git submodule).
+
+**Key insight:** Editing `grammar.js` alone is NOT enough. You must:
+1. Run `tree-sitter generate` to regenerate `src/parser.c`
+2. Run `tree-sitter build --wasm` to compile to `grammars/supercollider.wasm`
+3. Reinstall the dev extension in Zed
+
+The build script handles this, but requires **emscripten** (`brew install emscripten`).
+
+**Extension.toml grammar config:**
+- `repository` + `rev` → Zed fetches from remote repo (reliable)
+- `path` → Zed compiles from local source (problematic with pre-compiled wasm)
+
+**To deploy grammar changes:**
+1. Fork `github.com/madskjeldgaard/tree-sitter-supercollider`
+2. Push changes to your fork
+3. Update `extension.toml` to point to your fork with new rev
+
+**Testing grammar locally:**
+```bash
+cd grammars/supercollider
+tree-sitter generate
+tree-sitter parse ../../tests/test_file.scd  # Test parsing
+tree-sitter query ../../languages/SuperCollider/runnables.scm ../../tests/test_file.scd  # Test queries
+```
+
+**Runnables (play buttons):**
+- Defined in `languages/SuperCollider/runnables.scm`
+- Must match node types from the grammar
+- `@run` marks where button appears, `@code` captures text for `ZED_CUSTOM_CODE`
+- `(#set! tag sc-eval)` links to task with matching tag in `.zed/tasks.json`
 
 ## Anti-patterns (do not regress)
 
@@ -89,7 +137,7 @@ bd sync  # Syncs beads state to/from beads-sync branch
 - `/release` merges verified dev to main **only after verification**
 
 **Before releasing to main:**
-1. Build succeeds: `cargo build --target wasm32-wasip2 --release`
+1. Build succeeds: `cargo build --target wasm32-wasip1 --release`
 2. Extension loads in Zed (test with "zed: reload extensions")
 3. Core features work (LSP starts, completion/hover functional)
 
