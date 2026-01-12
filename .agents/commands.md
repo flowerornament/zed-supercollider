@@ -9,6 +9,7 @@ purpose: "Small set of commands that prove the extension works or is broken"
 ## Build/Reload
 - Launcher: `cd server/launcher && cargo build --release` (output `server/launcher/target/release/sc_launcher`).
 - Extension: in Zed → Cmd+Shift+P → `zed: reload extensions` (rebuilds WASM and reloads tree-sitter configs).
+- Grammar changes: often require full Zed restart, not just reload extensions.
 
 ## Fast checks
 - Eval request accepted: `curl -i -X POST -d "1 + 1" http://127.0.0.1:57130/eval` → expect HTTP 202 + `{"status":"sent","request_id":...}`; actual result appears in Post Window log (`sclang_post.log`).
@@ -36,6 +37,14 @@ curl -X POST http://127.0.0.1:57130/stop        # CmdPeriod
 curl -X POST http://127.0.0.1:57130/boot
 curl -X POST http://127.0.0.1:57130/recompile
 curl -X POST http://127.0.0.1:57130/quit
+```
+
+## Tree-sitter / grammar testing
+```bash
+cd grammars/supercollider
+tree-sitter generate                    # regenerate parser from grammar.js
+tree-sitter parse ../../tests/test.scd  # verify parsing
+tree-sitter query ../../languages/SuperCollider/runnables.scm ../../tests/test.scd  # test queries
 ```
 
 ## Troubleshooting quick hits

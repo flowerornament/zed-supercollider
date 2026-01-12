@@ -26,6 +26,8 @@ purpose: "Only the rules that keep the SuperCollider/Rust/Zed code safe and pred
 
 ## Tree-sitter / runnables
 - Add tags in `runnables.scm` (`#set! tag sc-eval`) so tasks can match; without tags, play buttons won't bind.
+- Captures are case-sensitive: `@code` → `$ZED_CUSTOM_code` (not uppercase).
+- Extension tasks go in `languages/SuperCollider/tasks.json`, not `.zed/tasks.json`.
 - Keep highlight queries precise; avoid broad `(identifier) @variable` captures that make everything the same color.
 
 ## Testing/verification habit
