@@ -6,10 +6,10 @@ This project uses **bd** (beads) for issue tracking. Run `bd prime` for workflow
 
 Ship a stable Zed extension for SuperCollider with navigation, completion, hover, and play-button evaluation. Architecture is dual-channel: LSP over stdio↔UDP for intelligence, HTTP for eval/control (Zed extensions cannot call `workspace/executeCommand`).
 
-**Current state (2026-01-07):**
-- Working: go-to-definition, hover, completion, eval/control endpoints
-- Partial: references (built-ins can hit fallback issues)
-- Known: logging defaults noisy, "Non Boolean in test" crash in references provider
+**Current state (2026-01-11):**
+- Working: go-to-definition, hover, completion, references, eval/control, help docs, CodeLens/CodeAction
+- Caching: LRU cache for definition/reference lookups
+- Known: "Non Boolean in test" crash in references provider (edge case)
 
 ## Documentation Map
 
