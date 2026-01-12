@@ -132,9 +132,7 @@ Press `Cmd+.` (or right-click) for context-sensitive actions:
 
 ### Key bindings
 
-Two keymap files are provided in `.zed/`. Copy your preferred one to `~/.config/zed/keymap.json`.
-
-**Note:** These assume Zed's default keybindings. If you've loaded a different base keymap (VS Code, Sublime, etc.), some shortcuts may conflict.
+Three keymap files are provided in `.zed/`. Copy your preferred one to `~/.config/zed/keymap.json`.
 
 #### SC IDE Style (`.zed/keymap.json`)
 
@@ -148,7 +146,20 @@ Best for users coming from SuperCollider IDE. Matches [SC IDE defaults](https://
 | Recompile | `Cmd+K` |
 | Help | `Cmd+D` |
 
-**Note:** These override some Zed defaults (e.g., `Cmd+.` opens CodeAction menu, `Cmd+D` adds to selection).
+**Note:** Overrides some Zed defaults (`Cmd+.`, `Cmd+D`, `Cmd+B`).
+
+#### Zed-Native (`.zed/keymap-zed-native.json`) — Recommended
+
+Uses `Ctrl` prefix to avoid ALL conflicts with Zed defaults. Best for users who want SC alongside normal Zed shortcuts.
+
+| Function | Shortcut |
+|----------|----------|
+| Evaluate | `Ctrl+Return` |
+| Stop | `Ctrl+.` |
+| Boot Server | `Ctrl+B` |
+| Quit Server | `Ctrl+Q` |
+| Recompile | `Ctrl+R` |
+| Help | `Ctrl+H` |
 
 #### VS Code Compatible (`.zed/keymap-vscode-compatible.json`)
 
