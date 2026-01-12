@@ -8,8 +8,8 @@
 SC_PORT="${SC_HTTP_PORT:-57130}"
 case "$SC_PORT" in ""|0|*[!0-9]*) SC_PORT=57130 ;; esac
 
-# ZED_CUSTOM_CODE comes from runnables.scm @code capture
-CODE="${ZED_CUSTOM_CODE:-}"
+# ZED_CUSTOM_code comes from runnables.scm @code capture (case-sensitive!)
+CODE="${ZED_CUSTOM_code:-}"
 
 [ -z "$CODE" ] && exit 0
 

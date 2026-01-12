@@ -1,0 +1,11 @@
+[
+  {
+    "label": "SC: Evaluate",
+    "command": "bash",
+    "args": ["-c", "$ZED_WORKTREE_ROOT/tools/eval.sh"],
+    "tags": ["sc-eval"],
+    "reveal": "never",
+    "hide": "always",
+    "use_new_terminal": false
+  }
+]

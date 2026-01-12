@@ -7,10 +7,9 @@ description = "SuperCollider language support: grammar, queries, LSP bootstrap, 
 repository = "https://github.com/flowerornament/zed-supercollider"
 languages = ["languages/SuperCollider"]
 
-# Pin the Tree-sitter grammar used by this language.
 [grammars.supercollider]
-repository = "https://github.com/madskjeldgaard/tree-sitter-supercollider"
-rev = "613bac2ddc30bff4f0a1d88b1aa7e5ec8ca37028"
+repository = "https://github.com/flowerornament/tree-sitter-supercollider"
+rev = "5c2dcbb073fc2446f4cb6b6f6f28b8cbad1cf491"
 
 [language_servers.supercollider]
 language = "SuperCollider"
