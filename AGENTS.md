@@ -49,10 +49,28 @@ The build script handles this, but requires **emscripten** (`brew install emscri
 - `repository` + `rev` → Zed fetches from remote repo (reliable)
 - `path` → Zed compiles from local source (problematic with pre-compiled wasm)
 
+**Grammar fork:** We maintain a fork at `github.com/flowerornament/tree-sitter-supercollider` with:
+- `grouped_expression` vs `code_block` distinction (prevents nested paren play buttons)
+- Upstream: `github.com/madskjeldgaard/tree-sitter-supercollider`
+
 **To deploy grammar changes:**
-1. Fork `github.com/madskjeldgaard/tree-sitter-supercollider`
-2. Push changes to your fork
-3. Update `extension.toml` to point to your fork with new rev
+1. Edit `grammars/supercollider/grammar.js`
+2. Run `tree-sitter generate` to regenerate parser
+3. Test with `tree-sitter parse`
+4. Commit and push to fork: `cd grammars/supercollider && git push fork HEAD:main`
+5. Update `extension.toml` rev to new commit SHA
+
+**To merge upstream changes:**
+```bash
+cd grammars/supercollider
+git fetch origin                    # fetch upstream
+git checkout origin/main            # checkout latest upstream
+git cherry-pick <our-commit> --no-commit  # apply our changes
+# resolve conflicts if any
+tree-sitter generate                # regenerate parser
+git commit && git push fork HEAD:main --force
+# update extension.toml rev
+```
 
 **Testing grammar locally:**
 ```bash
@@ -64,9 +82,9 @@ tree-sitter query ../../languages/SuperCollider/runnables.scm ../../tests/test_f
 
 **Runnables (play buttons):**
 - Defined in `languages/SuperCollider/runnables.scm`
-- Must match node types from the grammar
-- `@run` marks where button appears, `@code` captures text for `ZED_CUSTOM_CODE`
-- `(#set! tag sc-eval)` links to task with matching tag in `.zed/tasks.json`
+- Must match node types from the grammar (`code_block`, `grouped_expression`)
+- `@run` marks where button appears, `@code` captures text for `$ZED_CUSTOM_code` (case-sensitive!)
+- `(#set! tag sc-eval)` links to task in `languages/SuperCollider/tasks.json`
 
 ## Anti-patterns (do not regress)
 
