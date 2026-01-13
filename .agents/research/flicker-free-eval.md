@@ -318,6 +318,27 @@ The code action approach we're implementing now is a stepping stone—it solves 
 
 ---
 
+## Implementation Status
+
+**Phase 1: Core LSP Implementation - COMPLETE (2026-01-13)**
+
+Commit: d3b430a - `feat(launcher): add LSP code action for flicker-free eval`
+
+What was implemented:
+1. **Document content cache** - HashMap tracking document content on didOpen/didChange/didClose
+2. **textDocument/codeAction handler** - Returns single "Evaluate" action with extracted code
+3. **workspace/executeCommand handler** - Sends eval to sclang via UDP, no terminal
+
+Key architecture:
+- Direct UDP path: Code Action → executeCommand → launcher → UDP → sclang
+- No HTTP involved in the eval path (HTTP server kept for backward compatibility)
+- Fire-and-forget: responds to Zed immediately, doesn't wait for sclang
+
+**Remaining Phases:**
+- Phase 2: Keybindings (zed-supercollider-57z)
+- Phase 3: Code Lenses (zed-supercollider-8v2)
+- Phase 4: Cleanup (zed-supercollider-hai)
+
 ## Testing Checklist
 
 1. [ ] Open .scd file with LSP running
@@ -325,10 +346,35 @@ The code action approach we're implementing now is a stepping stone—it solves 
 3. [ ] If only action, executes immediately (no menu)
 4. [ ] Code evaluates correctly (check Post Window output)
 5. [ ] **NO terminal tab flicker**
-6. [ ] Shift+Enter evaluates current line only
-7. [ ] Cmd+Enter evaluates enclosing block
+6. [ ] Shift+Enter evaluates current line only (Phase 2)
+7. [ ] Cmd+Enter evaluates enclosing block (Phase 1 Step 4 - deferred)
 8. [ ] Code lens appears and works (Phase 3)
 9. [ ] Graceful failure when server not running
+
+## How to Test Phase 1
+
+```bash
+# 1. Build the launcher
+cd server/launcher && cargo build --release
+
+# 2. Restart Zed (to pick up the new launcher)
+
+# 3. Open a .scd file
+
+# 4. Place cursor on a line like: "hello".postln
+
+# 5. Press Cmd+. to trigger code actions
+
+# 6. You should see "Evaluate" action
+
+# 7. Select it (or auto-execute if only action)
+
+# 8. Check Post Window - should see "hello" printed
+
+# 9. Verify NO terminal tab flicker
+```
+
+**Debug mode:** Set `SC_LAUNCHER_DEBUG=1` to see verbose logging in the launcher stderr.
 
 ---
 
