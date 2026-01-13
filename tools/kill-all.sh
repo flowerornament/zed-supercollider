@@ -20,6 +20,9 @@ if [ -n "$SCLANG_PID" ] && ps -p "$SCLANG_PID" >/dev/null 2>&1; then
     kill "$SCLANG_PID" 2>/dev/null || true
 fi
 
+# Kill any scsynth processes (spawned by sclang)
+pkill -f scsynth 2>/dev/null && echo "Stopped scsynth processes" || true
+
 if [ -n "$LAUNCHER_PID" ] && ps -p "$LAUNCHER_PID" >/dev/null 2>&1; then
     echo "Stopping launcher (pid $LAUNCHER_PID)"
     kill "$LAUNCHER_PID" 2>/dev/null || true

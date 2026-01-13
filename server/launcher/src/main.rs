@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use fslock::LockFile;
 use clap::{Parser, ValueEnum};
 use lsp_types::{
     CodeActionKind, CodeActionProviderCapability, CodeLensOptions, CompletionOptions,
@@ -221,9 +222,12 @@ pub fn cleanup_orphaned_processes() {
         }
     }
 
-    // Also scan for any orphaned sclang processes (PPID=1) with our command signature
+    // Also scan for any orphaned sclang/scsynth processes (PPID=1)
     #[cfg(unix)]
-    cleanup_orphaned_sclang_by_ppid();
+    {
+        cleanup_orphaned_sclang_by_ppid();
+        cleanup_orphaned_scsynth_by_ppid();
+    }
 }
 
 /// Check if a process is alive
@@ -260,12 +264,12 @@ fn kill_process(pid: u32) {
     }
 }
 
-/// Scan for orphaned sclang processes (PPID=1) and kill them
+/// Scan for orphaned processes by name with PPID=1 and kill them
 #[cfg(unix)]
-fn cleanup_orphaned_sclang_by_ppid() {
+fn cleanup_orphaned_by_ppid(process_name: &str) {
     use std::process::Command;
 
-    // Use ps to find sclang processes with PPID=1 (orphaned, reparented to init)
+    // Use ps to find processes with PPID=1 (orphaned, reparented to init)
     let output = Command::new("ps")
         .args(["-eo", "pid,ppid,comm"])
         .output();
@@ -278,12 +282,12 @@ fn cleanup_orphaned_sclang_by_ppid() {
             if parts.len() >= 3 {
                 if let (Ok(pid), Ok(ppid)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
                     let comm = parts[2..].join(" ");
-                    // Check if it's an orphaned sclang (PPID=1 means parent died)
-                    if ppid == 1 && comm.contains("sclang") {
+                    // Check if it's an orphaned process (PPID=1 means parent died)
+                    if ppid == 1 && comm.contains(process_name) {
                         if verbose_logging_enabled() {
                             eprintln!(
-                                "[sc_launcher] found orphaned sclang process (pid={}, ppid=1), killing",
-                                pid
+                                "[sc_launcher] found orphaned {} process (pid={}, ppid=1), killing",
+                                process_name, pid
                             );
                         }
                         kill_process(pid);
@@ -292,6 +296,18 @@ fn cleanup_orphaned_sclang_by_ppid() {
             }
         }
     }
+}
+
+/// Scan for orphaned sclang processes (PPID=1) and kill them
+#[cfg(unix)]
+fn cleanup_orphaned_sclang_by_ppid() {
+    cleanup_orphaned_by_ppid("sclang");
+}
+
+/// Scan for orphaned scsynth processes (PPID=1) and kill them
+#[cfg(unix)]
+fn cleanup_orphaned_scsynth_by_ppid() {
+    cleanup_orphaned_by_ppid("scsynth");
 }
 
 /// Construct an sclang command, forcing the appropriate architecture slice on macOS.
@@ -423,6 +439,21 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     // Clean up any orphaned sclang processes from previous launcher instances
     cleanup_orphaned_processes();
+
+    // Acquire exclusive lock to ensure single instance.
+    // This prevents port conflicts when Zed restarts quickly.
+    let lock_path = log_dir().join("sc_launcher.lock");
+    let mut lock = LockFile::open(&lock_path)
+        .map_err(|e| anyhow!("failed to open lock file {:?}: {}", lock_path, e))?;
+    if !lock.try_lock().unwrap_or(false) {
+        if verbose {
+            eprintln!("[sc_launcher] waiting for previous instance to release lock...");
+        }
+        // Block until lock is available (previous instance exiting)
+        lock.lock()
+            .map_err(|e| anyhow!("failed to acquire lock: {}", e))?;
+    }
+    // Lock is held for process lifetime - auto-releases on exit
 
     let run_token = RUN_TOKEN.fetch_add(1, Ordering::SeqCst);
     if IS_RUNNING.swap(true, Ordering::SeqCst) {

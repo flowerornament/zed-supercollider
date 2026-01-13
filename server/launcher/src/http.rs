@@ -7,8 +7,9 @@
 //! - POST /convert-schelp - Convert .schelp to markdown
 
 use anyhow::{anyhow, Result};
+use socket2::{Domain, Protocol, Socket, Type};
 use std::io;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, TcpListener, UdpSocket};
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -88,17 +89,30 @@ pub fn run_http_server(
     shutdown: Arc<AtomicBool>,
 ) -> Result<()> {
     let verbose = verbose_logging_enabled();
-    let addr = format!("127.0.0.1:{}", port);
-    let server = match Server::http(&addr) {
-        Ok(s) => s,
-        Err(err) => {
-            eprintln!(
-                "[sc_launcher] failed to start HTTP server on {}: {}",
-                addr, err
-            );
-            return Err(anyhow!("HTTP server bind failed: {}", err));
-        }
-    };
+    let addr: SocketAddr = format!("127.0.0.1:{}", port)
+        .parse()
+        .map_err(|e| anyhow!("invalid address: {}", e))?;
+
+    // Create socket with SO_REUSEADDR to allow quick rebinding after restart.
+    // This prevents "address already in use" errors when Zed restarts quickly.
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+        .map_err(|e| anyhow!("failed to create socket: {}", e))?;
+    socket
+        .set_reuse_address(true)
+        .map_err(|e| anyhow!("failed to set SO_REUSEADDR: {}", e))?;
+    socket
+        .bind(&addr.into())
+        .map_err(|e| anyhow!("failed to bind socket to {}: {}", addr, e))?;
+    socket
+        .listen(128)
+        .map_err(|e| anyhow!("failed to listen on socket: {}", e))?;
+
+    // Convert to std TcpListener, then create tiny_http Server
+    let listener: TcpListener = socket.into();
+    let server = Server::from_listener(listener, None).map_err(|e| {
+        eprintln!("[sc_launcher] failed to start HTTP server on {}: {}", addr, e);
+        anyhow!("HTTP server bind failed: {}", e)
+    })?;
 
     if verbose {
         eprintln!(
