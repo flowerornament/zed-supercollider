@@ -25,3 +25,6 @@ grammars/
 
 # Local test files (not tracked)
 tests/
+
+# bv (beads viewer) local config and caches
+.bv/
