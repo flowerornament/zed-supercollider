@@ -1,41 +1,64 @@
 # Research: Flicker-Free Evaluation in Zed
 
 **Date:** 2026-01-13
-**Status:** Plan complete, implementation pending
-**BD Task:** zed-supercollider-ysj (Phase 1), zed-supercollider-57z (Phase 2), zed-supercollider-8v2 (Phase 3), zed-supercollider-hai (Phase 4)
+**Status:** Phase 1 COMPLETE, Phase 2 ready
+**BD Tasks:**
+- ~~zed-supercollider-ysj (Phase 1)~~ DONE
+- zed-supercollider-57z (Phase 2: keybindings) READY
+- zed-supercollider-8v2 (Phase 3: code lenses)
+- zed-supercollider-hai (Phase 4: cleanup)
 **Branch:** `feature/lsp-code-action-eval`
 
 ---
 
-## How to Resume This Work
+## Phase 1 Implementation Summary (COMPLETE)
+
+**What was built:**
+- Flicker-free eval via LSP code actions (Cmd+. menu)
+- Delegated to sclang's existing CodeActionProvider (not custom parsing)
+- sclang provides: "SC: Evaluate Line", "SC: Evaluate Block", "SC: Evaluate Selection"
+
+**Key insight:** sclang's LanguageServer.quark already has a CodeActionProvider at:
+`server/quark/LanguageServer.quark/Providers/CodeActionProvider.sc`
+
+It uses `LSPDatabase.getDocumentRegions(doc)` for proper block detection. We just forward requests to sclang instead of implementing our own parser.
+
+**What was removed:**
+- ~350 lines of naive paren-matching code we initially wrote
+- document_cache (no longer needed)
+- supercollider.evaluate command (sclang uses .evaluateSelection)
+
+**Commits on branch:**
+1. `feat(launcher): add LSP code action for flicker-free eval` - initial naive implementation
+2. `feat(launcher): LSP code action eval with block detection` - improved paren matching
+3. `refactor(launcher): delegate code actions to sclang` - final elegant solution
+
+---
+
+## How to Resume (Phase 2)
 
 ```bash
 # 1. Switch to the feature branch
 git checkout feature/lsp-code-action-eval
 
-# 2. Check current task status
-bd show zed-supercollider-ysj
+# 2. Check Phase 2 task
+bd show zed-supercollider-57z
 
-# 3. Mark task as in progress when starting
-bd update zed-supercollider-ysj --status=in_progress
+# 3. Mark as in progress
+bd update zed-supercollider-57z --status=in_progress
 ```
 
-**Key files to read first:**
-- This document (you're here)
-- `server/launcher/src/main.rs` - where LSP handlers go (line ~970 for capabilities, ~1420 for method dispatch)
-- `server/launcher/src/http.rs` - existing HTTP /eval endpoint to reuse
+**Phase 2 Goal:** Update keybindings so Cmd+Enter triggers code action eval instead of task
 
-**Important codebase context:**
-- Execute commands are already declared at line ~970: `supercollider.eval`, `supercollider.evaluateSelection`
-- But there's **no handler** for `workspace/executeCommand` requests yet - need to add one
-- Method dispatch is via if-else chain on `method` string (see line ~1424)
-- The HTTP eval endpoint at `/eval` already works - just call it from the new handler
+**Key files:**
+- `.zed/tasks.json` - project-level keyboard shortcuts
+- `languages/SuperCollider/tasks.json` - extension-level task definition
+- `languages/SuperCollider/keymap.json` - if we need custom keybindings
 
-**Implementation order:**
-1. Add `workspace/executeCommand` handler for `supercollider.evaluate`
-2. Add `textDocument/codeAction` handler returning "Evaluate" action
-3. Test with Cmd+. in a .scd file
-4. Verify no terminal flicker
+**Phase 2 approach options:**
+1. Bind Cmd+Enter to `editor::ToggleCodeActions` with filter for SC files
+2. Use `workspace::SendKeystrokes` to trigger Cmd+. programmatically
+3. Create custom keybinding that calls the code action directly
 
 ---
 
