@@ -473,3 +473,30 @@ cd server/launcher && cargo build --release
 - [LSP Code Action Specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_codeAction)
 - [LSP Execute Command Specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_executeCommand)
 - Related: `.agents/proposals/terminal-eval-ux.md` (detailed UX analysis)
+
+## Phase 2 Final Status (2026-01-13)
+
+**Completed:**
+- LSP code actions work for flicker-free eval
+- CodeLensProvider disabled (redundant)
+- Runnable task renamed to "Z: Run (task)"
+- Keymaps updated: ctrl-enter → editor::ToggleCodeActions
+
+**New Issue:** zed-supercollider-d8s
+- ctrl-enter stopped triggering code actions after Zed restart
+- May be keybinding conflict or registration issue
+- Debug needed
+
+**Architecture (final):**
+- Runnables (play buttons) → task → flicker
+- Code actions (ctrl-enter) → LSP → no flicker
+- Menu shows: "SC: Evaluate Line/Block" (LSP) + "Z: Run (task)" on play-button lines
+
+**Next session prompt:**
+```
+Debug ctrl-enter not triggering code actions.
+Branch: feature/lsp-code-action-eval
+Task: bd show zed-supercollider-d8s
+Read: .agents/research/flicker-free-eval.md
+Check: ~/.nix-config/configs/zed/keymap.json
+```
