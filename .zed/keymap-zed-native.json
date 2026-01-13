@@ -1,4 +1,4 @@
-// SuperCollider key bindings for Zed - Zed-Native Edition.
+// SuperCollider key bindings for Zed - Zed-Native Edition (RECOMMENDED).
 // Uses Ctrl prefix to avoid ALL conflicts with Zed's default keybindings.
 // Copy or merge into your personal keymap (~/.config/zed/keymap.json).
 //
@@ -11,28 +11,23 @@
   {
     "context": "Editor && (extension == sc || extension == scd)",
     "bindings": {
-      // === Code Evaluation ===
-      // Ctrl+Enter - evaluate selection/block
-      "ctrl-enter": ["task::Spawn", { "task_name": "SC: Evaluate Selection" }],
+      // === Code Evaluation (Flicker-Free via LSP Code Actions) ===
+      // Ctrl+Enter - smart eval (block if in block, line otherwise) - instant!
+      "ctrl-enter": "editor::ToggleCodeActions",
 
       // === Stop (CRITICAL) ===
       // Ctrl+. - stop all sounds (mirrors Cmd+. but doesn't override it)
       "ctrl-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }],
 
       // === Server Control ===
-      // Ctrl+B - boot server
       "ctrl-b": ["task::Spawn", { "task_name": "SC: Boot Server" }],
-      // Ctrl+Q - quit server (Ctrl, not Cmd, so won't quit Zed)
       "ctrl-q": ["task::Spawn", { "task_name": "SC: Quit Server" }],
 
       // === Recompile ===
-      // Ctrl+R - recompile class library
       "ctrl-r": ["task::Spawn", { "task_name": "SC: Recompile" }],
 
       // === Help ===
-      // Ctrl+H - open help in browser
       "ctrl-h": ["task::Spawn", { "task_name": "SC: Help (Browser)" }],
-      // Ctrl+Shift+H - open help in terminal (with glow)
       "ctrl-shift-h": ["task::Spawn", { "task_name": "SC: Help (Terminal)" }]
     }
   },

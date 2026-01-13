@@ -578,6 +578,11 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     // This prevents sclang's duplicate responses from overwriting ours.
     let responded_ids: Arc<Mutex<HashSet<RequestId>>> = Arc::new(Mutex::new(HashSet::new()));
 
+    // Track textDocument/codeAction request IDs so we can filter responses
+    // to return only ONE eval action (enabling Zed's auto-execute for instant eval).
+    let codeaction_request_ids: Arc<Mutex<HashSet<RequestId>>> =
+        Arc::new(Mutex::new(HashSet::new()));
+
     // Start the stdin bridge IMMEDIATELY to capture the initialize request from Zed.
     // The bridge will buffer messages until sclang is ready.
     if verbose {
@@ -593,6 +598,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         let done_tx = stdin_done_tx.clone();
         let ready_flag = sclang_ready.clone();
         let responded = responded_ids.clone();
+        let codeaction_ids_clone = codeaction_request_ids.clone();
         let recompile_count = ready_count.clone();
         if verbose {
             eprintln!("[sc_launcher] spawning stdin->udp thread NOW");
@@ -600,7 +606,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         }
         let handle = thread::Builder::new()
             .name("stdin->udp".into())
-            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag, responded, recompile_count))
+            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag, responded, codeaction_ids_clone, recompile_count))
             .context("failed to spawn stdin->udp bridge thread")?;
         if verbose {
             eprintln!("[sc_launcher] stdin->udp thread spawned successfully");
@@ -614,9 +620,10 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         let udp = udp_receiver;
         let shutdown = shutdown.clone();
         let responded = responded_ids.clone();
+        let codeaction_ids = codeaction_request_ids.clone();
         thread::Builder::new()
             .name("udp->stdout".into())
-            .spawn(move || pump_udp_to_stdout(udp, shutdown, responded))
+            .spawn(move || pump_udp_to_stdout(udp, shutdown, responded, codeaction_ids))
             .context("failed to spawn udp->stdout bridge thread")?
     };
 
@@ -1157,6 +1164,7 @@ fn pump_stdin_to_udp(
     done_tx: mpsc::Sender<()>,
     sclang_ready: Arc<AtomicBool>,
     responded_ids: Arc<Mutex<HashSet<RequestId>>>,
+    codeaction_request_ids: Arc<Mutex<HashSet<RequestId>>>,
     ready_count: Arc<AtomicU64>,
 ) -> Result<()> {
     let verbose = verbose_logging_enabled();
@@ -1492,9 +1500,23 @@ fn pump_stdin_to_udp(
                                     }
                                 }
 
-                                // NOTE: textDocument/codeAction is forwarded to sclang
-                                // sclang's CodeActionProvider returns "SC: Evaluate Line/Block/Selection"
-                                // which use supercollider.evaluateSelection command
+                                // Track textDocument/codeAction requests so we can filter
+                                // the response to a single eval action for instant eval.
+                                if method == "textDocument/codeAction" {
+                                    if let Some(id) = json.get("id") {
+                                        if let Some(request_id) = RequestId::from_json(id) {
+                                            if let Ok(mut set) = codeaction_request_ids.lock() {
+                                                set.insert(request_id.clone());
+                                                if verbose {
+                                                    eprintln!(
+                                                        "[sc_launcher] tracking codeAction request id={} for filtering",
+                                                        request_id
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
 
                                 // NOTE: workspace/executeCommand is forwarded to sclang
                                 // sclang's ExecuteCommandProvider handles supercollider.evaluateSelection, .eval, etc.
@@ -1532,10 +1554,29 @@ fn pump_stdin_to_udp(
     Ok(())
 }
 
+/// Filter code actions to return only ONE eval action for instant eval.
+/// Priority: Selection > Block > Line (most specific first).
+fn filter_to_single_eval_action(actions: &[JsonValue]) -> JsonValue {
+    // Priority order: Selection (user explicitly selected), Block (in code block), Line (fallback)
+    for keyword in ["Selection", "Block", "Line"] {
+        if let Some(action) = actions.iter().find(|a| {
+            a.get("title")
+                .and_then(|t| t.as_str())
+                .map(|s| s.contains("Evaluate") && s.contains(keyword))
+                .unwrap_or(false)
+        }) {
+            return JsonValue::Array(vec![action.clone()]);
+        }
+    }
+    // No eval action found - return empty array
+    JsonValue::Array(vec![])
+}
+
 fn pump_udp_to_stdout(
     socket: UdpSocket,
     shutdown: Arc<AtomicBool>,
     responded_ids: Arc<Mutex<HashSet<RequestId>>>,
+    codeaction_request_ids: Arc<Mutex<HashSet<RequestId>>>,
 ) -> Result<()> {
     let verbose = verbose_logging_enabled();
     let start = std::time::Instant::now();
@@ -1681,6 +1722,53 @@ fn pump_udp_to_stdout(
                         if should_suppress {
                             // Skip writing this response to stdout
                             continue 'outer;
+                        }
+
+                        // Filter codeAction responses to enable instant eval (single action = auto-execute)
+                        if let Ok(mut json) = serde_json::from_slice::<JsonValue>(&body) {
+                            if let Some(id) = json.get("id") {
+                                if let Some(request_id) = RequestId::from_json(id) {
+                                    let is_codeaction_response = {
+                                        if let Ok(mut set) = codeaction_request_ids.lock() {
+                                            if set.contains(&request_id) {
+                                                set.remove(&request_id);
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        }
+                                    };
+
+                                    if is_codeaction_response {
+                                        if let Some(result) = json.get("result") {
+                                            if let JsonValue::Array(actions) = result {
+                                                let filtered = filter_to_single_eval_action(actions);
+                                                // Always log filtering for debugging
+                                                let action_count = if let JsonValue::Array(ref arr) = filtered {
+                                                    arr.len()
+                                                } else {
+                                                    0
+                                                };
+                                                eprintln!(
+                                                    "[sc_launcher] FILTER: {} actions -> {} action(s)",
+                                                    actions.len(),
+                                                    action_count
+                                                );
+                                                // Update the result with filtered actions
+                                                if let JsonValue::Object(ref mut map) = json {
+                                                    map.insert("result".to_string(), filtered);
+                                                }
+                                                // Re-serialize the modified response
+                                                if let Ok(new_body) = serde_json::to_vec(&json) {
+                                                    body = new_body;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Write exactly one LSP message to stdout, potentially patched.

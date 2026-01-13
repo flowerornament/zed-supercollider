@@ -10,8 +10,9 @@
   {
     "context": "Editor && (extension == sc || extension == scd)",
     "bindings": {
-      // === Code Evaluation ===
-      "cmd-shift-enter": ["task::Spawn", { "task_name": "SC: Evaluate Selection" }],
+      // === Code Evaluation (Flicker-Free via LSP Code Actions) ===
+      // Cmd+Shift+Enter - smart eval (block if in block, line otherwise) - instant!
+      "cmd-shift-enter": "editor::ToggleCodeActions",
 
       // === Stop (CRITICAL) ===
       // Escape - intuitive panic button, SC IDE uses this on Windows/Linux

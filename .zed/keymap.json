@@ -1,8 +1,11 @@
-// SuperCollider key bindings for Zed.
+// SuperCollider key bindings for Zed - SC IDE Style.
 // Matches SC IDE defaults as closely as possible.
 // Copy or merge into your personal keymap (~/.config/zed/keymap.json).
 //
 // SC IDE Reference: https://doc.sccode.org/Reference/KeyboardShortcuts.html
+//
+// NOTE: This overrides some Zed defaults (Cmd+., Cmd+B, Cmd+D).
+// For non-conflicting bindings, use keymap-zed-native.json instead.
 [
   // ============================================================
   // SuperCollider files (.sc, .scd)
@@ -10,14 +13,14 @@
   {
     "context": "Editor && (extension == sc || extension == scd)",
     "bindings": {
-      // === Code Evaluation ===
-      // SC IDE: Cmd+Return or Shift+Return to evaluate
-      "shift-enter": ["task::Spawn", { "task_name": "SC: Evaluate Selection" }],
-      "cmd-enter": ["task::Spawn", { "task_name": "SC: Evaluate Selection" }],
+      // === Code Evaluation (Flicker-Free via LSP Code Actions) ===
+      // Cmd+Enter or Shift+Enter - smart eval (block if in block, line otherwise) - instant!
+      "cmd-enter": "editor::ToggleCodeActions",
+      "shift-enter": "editor::ToggleCodeActions",
 
       // === Stop (CRITICAL) ===
       // SC IDE: Cmd+. stops all sounds - this is muscle memory for all SC users
-      // Zed uses Cmd+. for CodeAction menu, so we override it here
+      // NOTE: Overrides Zed's CodeAction menu (use tasks menu instead: Cmd+Shift+R)
       "cmd-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }],
 
       // === Server Control ===
@@ -25,13 +28,12 @@
       "cmd-b": ["task::Spawn", { "task_name": "SC: Boot Server" }],
 
       // === Recompile ===
-      // SC IDE: Cmd+K recompiles (some versions use Cmd+Shift+L)
+      // SC IDE: Cmd+K recompiles
       "cmd-k": ["task::Spawn", { "task_name": "SC: Recompile" }],
 
       // === Help ===
       // SC IDE: Cmd+D opens help for word at cursor
       "cmd-d": ["task::Spawn", { "task_name": "SC: Help (Browser)" }],
-      // Alternative help bindings
       "cmd-shift-d": ["task::Spawn", { "task_name": "SC: Help (Terminal)" }],
       "cmd-alt-d": ["task::Spawn", { "task_name": "SC: Help (Window)" }]
     }
