@@ -1548,21 +1548,38 @@ fn pump_stdin_to_udp(
 
                                 // Handle textDocument/codeAction for evaluate
                                 // Returns a single "Evaluate" action with extracted code
+                                // Only for SuperCollider files (.sc, .scd)
                                 if method == "textDocument/codeAction" {
                                     if let Some(id) = json.get("id") {
                                         if let Some(params) = json.get("params") {
                                             // Extract document URI and range
                                             let uri = params.get("textDocument")
                                                 .and_then(|td| td.get("uri"))
-                                                .and_then(|u| u.as_str());
-                                            let range = params.get("range");
+                                                .and_then(|u| u.as_str())
+                                                .unwrap_or("");
 
-                                            if let (Some(uri), Some(range)) = (uri, range) {
+                                            // Only handle SuperCollider files
+                                            let is_sc_file = uri.ends_with(".sc") || uri.ends_with(".scd");
+
+                                            eprintln!("[sc_launcher] codeAction request for {} (is_sc={})", uri, is_sc_file);
+
+                                            if is_sc_file {
+                                                let range = params.get("range");
+
                                                 // Get document content from cache
                                                 let content = document_cache.lock().ok()
-                                                    .and_then(|cache| cache.get(uri).cloned());
+                                                    .and_then(|cache| {
+                                                        let result = cache.get(uri).cloned();
+                                                        eprintln!("[sc_launcher] cache lookup: {} -> {}", uri,
+                                                            if result.is_some() { "found" } else { "NOT FOUND" });
+                                                        if result.is_none() {
+                                                            eprintln!("[sc_launcher] cache contains: {:?}", cache.keys().collect::<Vec<_>>());
+                                                        }
+                                                        result
+                                                    });
 
-                                                if let Some(content) = content {
+                                                // Build code action result
+                                                let code_action_result = if let (Some(content), Some(range)) = (content, range) {
                                                     // Extract code based on range
                                                     let start_line = range.get("start")
                                                         .and_then(|s| s.get("line"))
@@ -1614,49 +1631,53 @@ fn pump_stdin_to_udp(
                                                         }
                                                     };
 
-                                                    if verbose {
-                                                        eprintln!("[sc_launcher] codeAction: extracted {} bytes from {} lines",
-                                                            code.len(), if start_line == end_line { 1 } else { end_line - start_line + 1 });
-                                                    }
+                                                    eprintln!("[sc_launcher] codeAction: extracted {} bytes", code.len());
 
                                                     // Create the Evaluate code action
-                                                    let code_action = serde_json::json!([{
-                                                        "title": "Evaluate",
+                                                    serde_json::json!([{
+                                                        "title": "⚡ Evaluate (no flicker)",
                                                         "kind": "source",
+                                                        "isPreferred": true,
                                                         "command": {
                                                             "title": "Evaluate",
                                                             "command": "supercollider.evaluate",
                                                             "arguments": [code]
                                                         }
-                                                    }]);
+                                                    }])
+                                                } else {
+                                                    eprintln!("[sc_launcher] codeAction: no content in cache, returning empty");
+                                                    serde_json::json!([])
+                                                };
 
-                                                    // Send response
-                                                    let response = serde_json::json!({
-                                                        "jsonrpc": JSONRPC_VERSION,
-                                                        "id": id,
-                                                        "result": code_action
-                                                    });
-                                                    let response_json = serde_json::to_string(&response)
-                                                        .expect("response must serialize");
-                                                    let response_msg = format!(
-                                                        "Content-Length: {}\r\n\r\n{}",
-                                                        response_json.len(),
-                                                        response_json
-                                                    );
-                                                    let mut stdout = io::stdout();
-                                                    if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
-                                                        eprintln!("[sc_launcher] failed to write codeAction response: {}", e);
-                                                    }
-                                                    let _ = stdout.flush();
+                                                // Send response
+                                                let response = serde_json::json!({
+                                                    "jsonrpc": JSONRPC_VERSION,
+                                                    "id": id,
+                                                    "result": code_action_result
+                                                });
+                                                let response_json = serde_json::to_string(&response)
+                                                    .expect("response must serialize");
+                                                let response_msg = format!(
+                                                    "Content-Length: {}\r\n\r\n{}",
+                                                    response_json.len(),
+                                                    response_json
+                                                );
 
-                                                    // Don't forward - we handled it
-                                                    if let Some(request_id) = RequestId::from_json(id) {
-                                                        if let Ok(mut set) = responded_ids.lock() {
-                                                            set.insert(request_id);
-                                                        }
-                                                    }
-                                                    should_forward = false;
+                                                eprintln!("[sc_launcher] sending codeAction response: {} bytes", response_json.len());
+
+                                                let mut stdout = io::stdout();
+                                                if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
+                                                    eprintln!("[sc_launcher] failed to write codeAction response: {}", e);
                                                 }
+                                                let _ = stdout.flush();
+
+                                                // Don't forward - we handled it
+                                                if let Some(request_id) = RequestId::from_json(id) {
+                                                    if let Ok(mut set) = responded_ids.lock() {
+                                                        set.insert(request_id);
+                                                    }
+                                                }
+                                                should_forward = false;
                                             }
                                         }
                                     }
