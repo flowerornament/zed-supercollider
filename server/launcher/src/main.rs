@@ -1166,6 +1166,11 @@ fn pump_stdin_to_udp(
     // Cache initialize request to resend after recompile
     let cached_initialize: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
 
+    // Document content cache for code actions (maps URI to content)
+    // We use FULL sync mode, so each didChange includes the complete document text
+    use std::collections::HashMap;
+    let document_cache: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
     let mut stdin_log = if debug_file_logs_enabled() {
         std::fs::OpenOptions::new()
             .create(true)
@@ -1194,6 +1199,12 @@ fn pump_stdin_to_udp(
     let sender_socket = socket
         .try_clone()
         .context("failed to clone socket for sender")?;
+
+    // Socket for direct eval sends (code actions, executeCommand)
+    let eval_socket = socket
+        .try_clone()
+        .context("failed to clone socket for eval")?;
+
     let sender_ready = sclang_ready.clone();
     let sender_shutdown = shutdown.clone();
     let resend_did_open = cached_did_open.clone();
@@ -1404,7 +1415,7 @@ fn pump_stdin_to_udp(
                 }
                 // Log incoming LSP method for debugging and handle initialize specially
                 let is_buffered = !sclang_ready.load(Ordering::SeqCst);
-                let should_forward = true;
+                let mut should_forward = true;
 
                 if let Ok(body_str) = std::str::from_utf8(&message) {
                     if let Some(body_start) = body_str.find("\r\n\r\n") {
@@ -1421,13 +1432,57 @@ fn pump_stdin_to_udp(
                                     );
                                 }
                                 // Cache last didOpen/didChange so we can replay after sclang is ready.
+                                // Also update document_cache for code actions
                                 if method == "textDocument/didOpen" {
                                     if let Ok(mut slot) = cached_did_open.lock() {
                                         *slot = Some(message.clone());
                                     }
+                                    // Update document cache with the opened document content
+                                    if let Some(params) = json.get("params") {
+                                        if let (Some(uri), Some(text)) = (
+                                            params.get("textDocument").and_then(|td| td.get("uri")).and_then(|u| u.as_str()),
+                                            params.get("textDocument").and_then(|td| td.get("text")).and_then(|t| t.as_str()),
+                                        ) {
+                                            if let Ok(mut cache) = document_cache.lock() {
+                                                cache.insert(uri.to_string(), text.to_string());
+                                                if verbose {
+                                                    eprintln!("[sc_launcher] cached document {} ({} bytes)", uri, text.len());
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else if method == "textDocument/didChange" {
                                     if let Ok(mut slot) = cached_did_change.lock() {
                                         *slot = Some(message.clone());
+                                    }
+                                    // Update document cache with FULL content (we use FULL sync mode)
+                                    if let Some(params) = json.get("params") {
+                                        if let (Some(uri), Some(changes)) = (
+                                            params.get("textDocument").and_then(|td| td.get("uri")).and_then(|u| u.as_str()),
+                                            params.get("contentChanges").and_then(|c| c.as_array()),
+                                        ) {
+                                            // In FULL sync mode, contentChanges has exactly one element with the full text
+                                            if let Some(text) = changes.first().and_then(|c| c.get("text")).and_then(|t| t.as_str()) {
+                                                if let Ok(mut cache) = document_cache.lock() {
+                                                    cache.insert(uri.to_string(), text.to_string());
+                                                    if verbose {
+                                                        eprintln!("[sc_launcher] updated document cache {} ({} bytes)", uri, text.len());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if method == "textDocument/didClose" {
+                                    // Remove from document cache when closed
+                                    if let Some(params) = json.get("params") {
+                                        if let Some(uri) = params.get("textDocument").and_then(|td| td.get("uri")).and_then(|u| u.as_str()) {
+                                            if let Ok(mut cache) = document_cache.lock() {
+                                                cache.remove(uri);
+                                                if verbose {
+                                                    eprintln!("[sc_launcher] removed document from cache: {}", uri);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 
@@ -1487,6 +1542,183 @@ fn pump_stdin_to_udp(
                                         // Cache initialize for re-sending after recompile
                                         if let Ok(mut slot) = cached_initialize.lock() {
                                             *slot = Some(message.clone());
+                                        }
+                                    }
+                                }
+
+                                // Handle textDocument/codeAction for evaluate
+                                // Returns a single "Evaluate" action with extracted code
+                                if method == "textDocument/codeAction" {
+                                    if let Some(id) = json.get("id") {
+                                        if let Some(params) = json.get("params") {
+                                            // Extract document URI and range
+                                            let uri = params.get("textDocument")
+                                                .and_then(|td| td.get("uri"))
+                                                .and_then(|u| u.as_str());
+                                            let range = params.get("range");
+
+                                            if let (Some(uri), Some(range)) = (uri, range) {
+                                                // Get document content from cache
+                                                let content = document_cache.lock().ok()
+                                                    .and_then(|cache| cache.get(uri).cloned());
+
+                                                if let Some(content) = content {
+                                                    // Extract code based on range
+                                                    let start_line = range.get("start")
+                                                        .and_then(|s| s.get("line"))
+                                                        .and_then(|l| l.as_u64())
+                                                        .unwrap_or(0) as usize;
+                                                    let start_char = range.get("start")
+                                                        .and_then(|s| s.get("character"))
+                                                        .and_then(|c| c.as_u64())
+                                                        .unwrap_or(0) as usize;
+                                                    let end_line = range.get("end")
+                                                        .and_then(|e| e.get("line"))
+                                                        .and_then(|l| l.as_u64())
+                                                        .unwrap_or(0) as usize;
+                                                    let end_char = range.get("end")
+                                                        .and_then(|e| e.get("character"))
+                                                        .and_then(|c| c.as_u64())
+                                                        .unwrap_or(0) as usize;
+
+                                                    let lines: Vec<&str> = content.lines().collect();
+                                                    let code = if start_line == end_line && start_char == end_char {
+                                                        // No selection - extract current line
+                                                        lines.get(start_line).unwrap_or(&"").to_string()
+                                                    } else {
+                                                        // Selection exists - extract selected text
+                                                        if start_line == end_line {
+                                                            // Single line selection
+                                                            let line = lines.get(start_line).unwrap_or(&"");
+                                                            let end = end_char.min(line.len());
+                                                            let start = start_char.min(end);
+                                                            line.get(start..end).unwrap_or("").to_string()
+                                                        } else {
+                                                            // Multi-line selection
+                                                            let mut result = String::new();
+                                                            for (i, line) in lines.iter().enumerate() {
+                                                                if i < start_line { continue; }
+                                                                if i > end_line { break; }
+                                                                if i == start_line {
+                                                                    result.push_str(line.get(start_char..).unwrap_or(""));
+                                                                } else if i == end_line {
+                                                                    result.push_str(line.get(..end_char.min(line.len())).unwrap_or(""));
+                                                                } else {
+                                                                    result.push_str(line);
+                                                                }
+                                                                if i != end_line {
+                                                                    result.push('\n');
+                                                                }
+                                                            }
+                                                            result
+                                                        }
+                                                    };
+
+                                                    if verbose {
+                                                        eprintln!("[sc_launcher] codeAction: extracted {} bytes from {} lines",
+                                                            code.len(), if start_line == end_line { 1 } else { end_line - start_line + 1 });
+                                                    }
+
+                                                    // Create the Evaluate code action
+                                                    let code_action = serde_json::json!([{
+                                                        "title": "Evaluate",
+                                                        "kind": "source",
+                                                        "command": {
+                                                            "title": "Evaluate",
+                                                            "command": "supercollider.evaluate",
+                                                            "arguments": [code]
+                                                        }
+                                                    }]);
+
+                                                    // Send response
+                                                    let response = serde_json::json!({
+                                                        "jsonrpc": JSONRPC_VERSION,
+                                                        "id": id,
+                                                        "result": code_action
+                                                    });
+                                                    let response_json = serde_json::to_string(&response)
+                                                        .expect("response must serialize");
+                                                    let response_msg = format!(
+                                                        "Content-Length: {}\r\n\r\n{}",
+                                                        response_json.len(),
+                                                        response_json
+                                                    );
+                                                    let mut stdout = io::stdout();
+                                                    if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
+                                                        eprintln!("[sc_launcher] failed to write codeAction response: {}", e);
+                                                    }
+                                                    let _ = stdout.flush();
+
+                                                    // Don't forward - we handled it
+                                                    if let Some(request_id) = RequestId::from_json(id) {
+                                                        if let Ok(mut set) = responded_ids.lock() {
+                                                            set.insert(request_id);
+                                                        }
+                                                    }
+                                                    should_forward = false;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Handle workspace/executeCommand for supercollider.evaluate
+                                // This is the flicker-free eval path - no terminal involved
+                                if method == "workspace/executeCommand" {
+                                    if let Some(params) = json.get("params") {
+                                        if let Some(command) = params.get("command").and_then(|c| c.as_str()) {
+                                            if command == "supercollider.evaluate" {
+                                                if let Some(id) = json.get("id") {
+                                                    // Extract code from arguments
+                                                    let code = params.get("arguments")
+                                                        .and_then(|args| args.as_array())
+                                                        .and_then(|arr| arr.first())
+                                                        .and_then(|c| c.as_str())
+                                                        .unwrap_or("");
+
+                                                    if verbose {
+                                                        eprintln!("[sc_launcher] INTERCEPTING supercollider.evaluate ({} bytes)", code.len());
+                                                    }
+
+                                                    // Send eval to sclang via UDP (fire-and-forget)
+                                                    let eval_id = next_lsp_request_id();
+                                                    let eval_request = create_execute_command_request(
+                                                        eval_id,
+                                                        "supercollider.eval",
+                                                        vec![serde_json::json!(code)],
+                                                    );
+                                                    if let Err(e) = http::send_lsp_payload(&eval_socket, &eval_request) {
+                                                        eprintln!("[sc_launcher] failed to send eval to sclang: {}", e);
+                                                    }
+
+                                                    // Respond to Zed immediately
+                                                    let response = serde_json::json!({
+                                                        "jsonrpc": JSONRPC_VERSION,
+                                                        "id": id,
+                                                        "result": null
+                                                    });
+                                                    let response_json = serde_json::to_string(&response)
+                                                        .expect("response must serialize");
+                                                    let response_msg = format!(
+                                                        "Content-Length: {}\r\n\r\n{}",
+                                                        response_json.len(),
+                                                        response_json
+                                                    );
+                                                    let mut stdout = io::stdout();
+                                                    if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
+                                                        eprintln!("[sc_launcher] failed to write executeCommand response: {}", e);
+                                                    }
+                                                    let _ = stdout.flush();
+
+                                                    // Record as responded and don't forward to sclang
+                                                    if let Some(request_id) = RequestId::from_json(id) {
+                                                        if let Ok(mut set) = responded_ids.lock() {
+                                                            set.insert(request_id);
+                                                        }
+                                                    }
+                                                    should_forward = false;
+                                                }
+                                            }
                                         }
                                     }
                                 }
