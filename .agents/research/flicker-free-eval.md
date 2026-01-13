@@ -7,6 +7,32 @@
 
 ---
 
+## How to Resume This Work
+
+```bash
+# 1. Switch to the feature branch
+git checkout feature/lsp-code-action-eval
+
+# 2. Check current task status
+bd show zed-supercollider-ysj
+
+# 3. Mark task as in progress when starting
+bd update zed-supercollider-ysj --status=in_progress
+```
+
+**Key files to read first:**
+- This document (you're here)
+- `server/launcher/src/main.rs` - where LSP handlers go
+- `server/launcher/src/http.rs` - existing HTTP /eval endpoint to reuse
+
+**Implementation order:**
+1. Add `workspace/executeCommand` handler for `supercollider.evaluate`
+2. Add `textDocument/codeAction` handler returning "Evaluate" action
+3. Test with Cmd+. in a .scd file
+4. Verify no terminal flicker
+
+---
+
 ## Problem Statement
 
 When evaluating SuperCollider code in Zed (via play button or Cmd+Enter), a terminal tab flickers open and closed (<100ms). This happens on every eval, creating a disruptive user experience.
