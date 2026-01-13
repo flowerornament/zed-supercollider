@@ -22,8 +22,14 @@ bd update zed-supercollider-ysj --status=in_progress
 
 **Key files to read first:**
 - This document (you're here)
-- `server/launcher/src/main.rs` - where LSP handlers go
+- `server/launcher/src/main.rs` - where LSP handlers go (line ~970 for capabilities, ~1420 for method dispatch)
 - `server/launcher/src/http.rs` - existing HTTP /eval endpoint to reuse
+
+**Important codebase context:**
+- Execute commands are already declared at line ~970: `supercollider.eval`, `supercollider.evaluateSelection`
+- But there's **no handler** for `workspace/executeCommand` requests yet - need to add one
+- Method dispatch is via if-else chain on `method` string (see line ~1424)
+- The HTTP eval endpoint at `/eval` already works - just call it from the new handler
 
 **Implementation order:**
 1. Add `workspace/executeCommand` handler for `supercollider.evaluate`
