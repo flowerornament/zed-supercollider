@@ -3,7 +3,7 @@
     "label": "SC: Post Window",
     "command": "tail",
     "args": [
-      "-f",
+      "-F",
       "/tmp/sclang_post.log"
     ],
     "reveal": "always",

@@ -9,6 +9,15 @@ if [[ "${1:-}" == "--debug" ]]; then
     MODE="debug"
 fi
 
+# Build tree-sitter grammar to wasm
+echo "Building tree-sitter grammar..."
+(
+    cd "$ROOT/grammars/supercollider"
+    tree-sitter generate
+    tree-sitter build --wasm -o ../supercollider.wasm
+)
+echo "Grammar built: $ROOT/grammars/supercollider.wasm"
+
 echo "Building SuperCollider launcher (${MODE})..."
 (
     cd "$ROOT/server/launcher"
