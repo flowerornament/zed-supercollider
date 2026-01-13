@@ -365,24 +365,67 @@ Key architecture:
 ## Phase 2 Progress (2026-01-13)
 
 **What was implemented:**
-- Code action filtering in launcher (`filter_to_single_eval_action`)
-- Returns single best eval action: Selection > Block > Line priority
-- Updated all 3 keymap files to use `editor::ToggleCodeActions` for eval
-- Added debug logging: `[sc_launcher] FILTER: X actions -> Y action(s)`
+
+1. **Code action filtering in launcher** (`server/launcher/src/main.rs:1556-1572`)
+   - `filter_to_single_eval_action()` function
+   - Priority: Selection > Block > Line (returns first match)
+   - Filters by title containing "Evaluate" + keyword
+
+2. **Request tracking** (`main.rs:1503-1517`)
+   - Stores codeAction request IDs in `codeaction_request_ids: Arc<Mutex<HashSet<RequestId>>>`
+   - On response, checks if ID is tracked, then filters
+
+3. **Response filtering** (`main.rs:1744-1773`)
+   - Intercepts codeAction responses before sending to Zed
+   - Replaces result array with filtered single-action array
+   - Re-serializes JSON with new Content-Length header
+
+4. **Keymaps updated** (all 3 variants)
+   - Changed eval bindings from `task::Spawn` to `editor::ToggleCodeActions`
+   - SC IDE style: cmd-enter, shift-enter
+   - Zed-native: ctrl-enter, ctrl-shift-enter
+   - VS Code: cmd-shift-enter
+
+5. **Debug logging** (always on)
+   - `[sc_launcher] FILTER: X actions -> Y action(s)` when filtering occurs
 
 **Issue:** Menu still appears despite filtering to 1 action
-- User reports needing to press Enter twice (once to show menu, once to select)
-- Zed's auto-execute may only work for task-linked code actions, not pure LSP actions
-- Need to investigate Zed's exact auto-execute criteria
+- User presses Ctrl+Enter → menu shows → needs Enter again
+- Expected: single action should auto-execute (no menu)
+- Possible causes:
+  1. Filtering not running (verify with FILTER log)
+  2. Zed's auto-execute has specific criteria we don't meet
+  3. Auto-execute only works for task-linked code actions
 
-**Also discovered:**
-- Project-level keymaps (`.zed/keymap.json`) don't auto-load - users must copy to personal keymap
-- Help system is broken (404 errors) - filed bd task zed-supercollider-h61
+**Key discovery:** Project-level keymaps DON'T auto-load
+- `.zed/keymap.json` is just a reference file
+- Users must copy to `~/.config/zed/keymap.json`
+- This is a Zed limitation, not something we can fix
 
-**Next steps:**
-1. Debug why filtering doesn't trigger auto-execute
-2. Consider alternative: bind directly to a specific code action kind if Zed supports it
-3. Consider alternative: use tasks for eval but find way to eliminate flicker
+**Other issues found:**
+- Help system broken (404 errors) - bd task zed-supercollider-h61
+- Server controls (boot, stop, recompile) still flicker - they use tasks, not code actions
+
+**Debug steps for next session:**
+```bash
+# 1. Check if filtering is running
+# Look for this in launcher output after pressing ctrl-enter:
+[sc_launcher] FILTER: X actions -> Y action(s)
+
+# 2. If no FILTER log, the tracking/filtering path isn't being reached
+# Check: is codeAction request ID being stored?
+# Check: is response ID matching stored ID?
+
+# 3. If FILTER log shows "10 actions -> 1 action(s)" but menu still appears
+# Then Zed's auto-execute doesn't work how we thought
+# Research Zed source code for ToggleCodeActions behavior
+```
+
+**Alternative approaches to consider:**
+1. Check Zed source for how auto-execute is triggered
+2. See if there's a way to invoke a specific code action by kind
+3. Accept menu but make it keyboard-friendly (arrow keys + enter)
+4. Different approach: custom Zed action that calls LSP directly
 
 ## Testing Checklist
 
