@@ -922,7 +922,7 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
     let capabilities = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
             open_close: Some(true),
-            change: Some(TextDocumentSyncKind::FULL),  // Need full text for code action extraction
+            change: Some(TextDocumentSyncKind::INCREMENTAL),
             will_save: None,
             will_save_wait_until: None,
             save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
@@ -970,7 +970,6 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
         execute_command_provider: Some(ExecuteCommandOptions {
             commands: vec![
                 "supercollider.eval".into(),
-                "supercollider.evaluate".into(),  // flicker-free eval via code action
                 "supercollider.evaluateSelection".into(),
                 "supercollider.internal.bootServer".into(),
                 "supercollider.internal.rebootServer".into(),
@@ -1167,11 +1166,6 @@ fn pump_stdin_to_udp(
     // Cache initialize request to resend after recompile
     let cached_initialize: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
 
-    // Document content cache for code actions (maps URI to content)
-    // We use FULL sync mode, so each didChange includes the complete document text
-    use std::collections::HashMap;
-    let document_cache: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
-
     let mut stdin_log = if debug_file_logs_enabled() {
         std::fs::OpenOptions::new()
             .create(true)
@@ -1200,11 +1194,6 @@ fn pump_stdin_to_udp(
     let sender_socket = socket
         .try_clone()
         .context("failed to clone socket for sender")?;
-
-    // Socket for direct eval sends (code actions, executeCommand)
-    let eval_socket = socket
-        .try_clone()
-        .context("failed to clone socket for eval")?;
 
     let sender_ready = sclang_ready.clone();
     let sender_shutdown = shutdown.clone();
@@ -1416,7 +1405,7 @@ fn pump_stdin_to_udp(
                 }
                 // Log incoming LSP method for debugging and handle initialize specially
                 let is_buffered = !sclang_ready.load(Ordering::SeqCst);
-                let mut should_forward = true;
+                let should_forward = true;
 
                 if let Ok(body_str) = std::str::from_utf8(&message) {
                     if let Some(body_start) = body_str.find("\r\n\r\n") {
@@ -1432,58 +1421,14 @@ fn pump_stdin_to_udp(
                                         if is_buffered { "[BUFFERED]" } else { "" }
                                     );
                                 }
-                                // Cache last didOpen/didChange so we can replay after sclang is ready.
-                                // Also update document_cache for code actions
+                                // Cache last didOpen/didChange so we can replay after sclang is ready
                                 if method == "textDocument/didOpen" {
                                     if let Ok(mut slot) = cached_did_open.lock() {
                                         *slot = Some(message.clone());
                                     }
-                                    // Update document cache with the opened document content
-                                    if let Some(params) = json.get("params") {
-                                        if let (Some(uri), Some(text)) = (
-                                            params.get("textDocument").and_then(|td| td.get("uri")).and_then(|u| u.as_str()),
-                                            params.get("textDocument").and_then(|td| td.get("text")).and_then(|t| t.as_str()),
-                                        ) {
-                                            if let Ok(mut cache) = document_cache.lock() {
-                                                cache.insert(uri.to_string(), text.to_string());
-                                                if verbose {
-                                                    eprintln!("[sc_launcher] cached document {} ({} bytes)", uri, text.len());
-                                                }
-                                            }
-                                        }
-                                    }
                                 } else if method == "textDocument/didChange" {
                                     if let Ok(mut slot) = cached_did_change.lock() {
                                         *slot = Some(message.clone());
-                                    }
-                                    // Update document cache with FULL content (we use FULL sync mode)
-                                    if let Some(params) = json.get("params") {
-                                        if let (Some(uri), Some(changes)) = (
-                                            params.get("textDocument").and_then(|td| td.get("uri")).and_then(|u| u.as_str()),
-                                            params.get("contentChanges").and_then(|c| c.as_array()),
-                                        ) {
-                                            // In FULL sync mode, contentChanges has exactly one element with the full text
-                                            if let Some(text) = changes.first().and_then(|c| c.get("text")).and_then(|t| t.as_str()) {
-                                                if let Ok(mut cache) = document_cache.lock() {
-                                                    cache.insert(uri.to_string(), text.to_string());
-                                                    if verbose {
-                                                        eprintln!("[sc_launcher] updated document cache {} ({} bytes)", uri, text.len());
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else if method == "textDocument/didClose" {
-                                    // Remove from document cache when closed
-                                    if let Some(params) = json.get("params") {
-                                        if let Some(uri) = params.get("textDocument").and_then(|td| td.get("uri")).and_then(|u| u.as_str()) {
-                                            if let Ok(mut cache) = document_cache.lock() {
-                                                cache.remove(uri);
-                                                if verbose {
-                                                    eprintln!("[sc_launcher] removed document from cache: {}", uri);
-                                                }
-                                            }
-                                        }
                                     }
                                 }
 
@@ -1547,307 +1492,12 @@ fn pump_stdin_to_udp(
                                     }
                                 }
 
-                                // Handle textDocument/codeAction for evaluate
-                                // Returns a single "Evaluate" action with extracted code
-                                // Only for SuperCollider files (.sc, .scd)
-                                if method == "textDocument/codeAction" {
-                                    if let Some(id) = json.get("id") {
-                                        if let Some(params) = json.get("params") {
-                                            // Extract document URI and range
-                                            let uri = params.get("textDocument")
-                                                .and_then(|td| td.get("uri"))
-                                                .and_then(|u| u.as_str())
-                                                .unwrap_or("");
+                                // NOTE: textDocument/codeAction is forwarded to sclang
+                                // sclang's CodeActionProvider returns "SC: Evaluate Line/Block/Selection"
+                                // which use supercollider.evaluateSelection command
 
-                                            // Only handle SuperCollider files
-                                            let is_sc_file = uri.ends_with(".sc") || uri.ends_with(".scd");
-
-                                            eprintln!("[sc_launcher] codeAction request for {} (is_sc={})", uri, is_sc_file);
-
-                                            if is_sc_file {
-                                                let range = params.get("range");
-
-                                                // Get document content from cache
-                                                let content = document_cache.lock().ok()
-                                                    .and_then(|cache| {
-                                                        let result = cache.get(uri).cloned();
-                                                        eprintln!("[sc_launcher] cache lookup: {} -> {}", uri,
-                                                            if result.is_some() { "found" } else { "NOT FOUND" });
-                                                        if result.is_none() {
-                                                            eprintln!("[sc_launcher] cache contains: {:?}", cache.keys().collect::<Vec<_>>());
-                                                        }
-                                                        result
-                                                    });
-
-                                                // Build code action result
-                                                let code_action_result = if let (Some(content), Some(range)) = (content, range) {
-                                                    // Extract code based on range
-                                                    let start_line = range.get("start")
-                                                        .and_then(|s| s.get("line"))
-                                                        .and_then(|l| l.as_u64())
-                                                        .unwrap_or(0) as usize;
-                                                    let start_char = range.get("start")
-                                                        .and_then(|s| s.get("character"))
-                                                        .and_then(|c| c.as_u64())
-                                                        .unwrap_or(0) as usize;
-                                                    let end_line = range.get("end")
-                                                        .and_then(|e| e.get("line"))
-                                                        .and_then(|l| l.as_u64())
-                                                        .unwrap_or(0) as usize;
-                                                    let end_char = range.get("end")
-                                                        .and_then(|e| e.get("character"))
-                                                        .and_then(|c| c.as_u64())
-                                                        .unwrap_or(0) as usize;
-
-                                                    let lines: Vec<&str> = content.lines().collect();
-                                                    let code = if start_line == end_line && start_char == end_char {
-                                                        // No selection - find enclosing () block, else current line
-                                                        // Convert line/char to absolute offset
-                                                        let mut cursor_offset = 0usize;
-                                                        for (i, line) in lines.iter().enumerate() {
-                                                            if i < start_line {
-                                                                cursor_offset += line.len() + 1; // +1 for newline
-                                                            } else {
-                                                                cursor_offset += start_char.min(line.len());
-                                                                break;
-                                                            }
-                                                        }
-
-                                                        // Find enclosing () block
-                                                        let bytes = content.as_bytes();
-                                                        let cursor_char = bytes.get(cursor_offset.min(bytes.len().saturating_sub(1)));
-
-                                                        // Handle cursor ON a paren specially
-                                                        let (block_start, block_end) = if cursor_char == Some(&b'(') {
-                                                            // Cursor on opening paren - find matching close
-                                                            let start_idx = cursor_offset;
-                                                            let mut depth = 1i32;
-                                                            let mut end_idx = None;
-                                                            for i in (start_idx + 1)..bytes.len() {
-                                                                match bytes.get(i) {
-                                                                    Some(b'(') => depth += 1,
-                                                                    Some(b')') => {
-                                                                        depth -= 1;
-                                                                        if depth == 0 {
-                                                                            end_idx = Some(i);
-                                                                            break;
-                                                                        }
-                                                                    }
-                                                                    _ => {}
-                                                                }
-                                                            }
-                                                            (Some(start_idx), end_idx)
-                                                        } else if cursor_char == Some(&b')') {
-                                                            // Cursor on closing paren - find matching open
-                                                            let end_idx = cursor_offset;
-                                                            let mut depth = 1i32;
-                                                            let mut start_idx = None;
-                                                            for i in (0..end_idx).rev() {
-                                                                match bytes.get(i) {
-                                                                    Some(b')') => depth += 1,
-                                                                    Some(b'(') => {
-                                                                        depth -= 1;
-                                                                        if depth == 0 {
-                                                                            start_idx = Some(i);
-                                                                            break;
-                                                                        }
-                                                                    }
-                                                                    _ => {}
-                                                                }
-                                                            }
-                                                            (start_idx, Some(end_idx))
-                                                        } else {
-                                                            // Cursor inside - find enclosing block
-                                                            let mut found_start: Option<usize> = None;
-                                                            let mut depth = 0i32;
-                                                            let scan_start = cursor_offset.min(bytes.len().saturating_sub(1));
-                                                            for i in (0..=scan_start).rev() {
-                                                                match bytes.get(i) {
-                                                                    Some(b')') => depth += 1,
-                                                                    Some(b'(') => {
-                                                                        if depth == 0 {
-                                                                            found_start = Some(i);
-                                                                            break;
-                                                                        }
-                                                                        depth -= 1;
-                                                                    }
-                                                                    _ => {}
-                                                                }
-                                                            }
-
-                                                            let found_end = if let Some(start_idx) = found_start {
-                                                                depth = 1;
-                                                                let mut end_idx = None;
-                                                                for i in (start_idx + 1)..bytes.len() {
-                                                                    match bytes.get(i) {
-                                                                        Some(b'(') => depth += 1,
-                                                                        Some(b')') => {
-                                                                            depth -= 1;
-                                                                            if depth == 0 {
-                                                                                end_idx = Some(i);
-                                                                                break;
-                                                                            }
-                                                                        }
-                                                                        _ => {}
-                                                                    }
-                                                                }
-                                                                end_idx
-                                                            } else {
-                                                                None
-                                                            };
-                                                            (found_start, found_end)
-                                                        };
-
-                                                        if let (Some(start_idx), Some(end_idx)) = (block_start, block_end) {
-                                                            // Extract the block including parens
-                                                            content.get(start_idx..=end_idx)
-                                                                .unwrap_or("")
-                                                                .to_string()
-                                                        } else {
-                                                            // No enclosing block - fall back to current line
-                                                            lines.get(start_line).unwrap_or(&"").to_string()
-                                                        }
-                                                    } else {
-                                                        // Selection exists - extract selected text
-                                                        if start_line == end_line {
-                                                            // Single line selection
-                                                            let line = lines.get(start_line).unwrap_or(&"");
-                                                            let end = end_char.min(line.len());
-                                                            let start = start_char.min(end);
-                                                            line.get(start..end).unwrap_or("").to_string()
-                                                        } else {
-                                                            // Multi-line selection
-                                                            let mut result = String::new();
-                                                            for (i, line) in lines.iter().enumerate() {
-                                                                if i < start_line { continue; }
-                                                                if i > end_line { break; }
-                                                                if i == start_line {
-                                                                    result.push_str(line.get(start_char..).unwrap_or(""));
-                                                                } else if i == end_line {
-                                                                    result.push_str(line.get(..end_char.min(line.len())).unwrap_or(""));
-                                                                } else {
-                                                                    result.push_str(line);
-                                                                }
-                                                                if i != end_line {
-                                                                    result.push('\n');
-                                                                }
-                                                            }
-                                                            result
-                                                        }
-                                                    };
-
-                                                    eprintln!("[sc_launcher] codeAction: extracted {} bytes", code.len());
-
-                                                    // Create the Evaluate code action
-                                                    serde_json::json!([{
-                                                        "title": "⚡ Evaluate (no flicker)",
-                                                        "kind": "source",
-                                                        "isPreferred": true,
-                                                        "command": {
-                                                            "title": "Evaluate",
-                                                            "command": "supercollider.evaluate",
-                                                            "arguments": [code]
-                                                        }
-                                                    }])
-                                                } else {
-                                                    eprintln!("[sc_launcher] codeAction: no content in cache, returning empty");
-                                                    serde_json::json!([])
-                                                };
-
-                                                // Send response
-                                                let response = serde_json::json!({
-                                                    "jsonrpc": JSONRPC_VERSION,
-                                                    "id": id,
-                                                    "result": code_action_result
-                                                });
-                                                let response_json = serde_json::to_string(&response)
-                                                    .expect("response must serialize");
-                                                let response_msg = format!(
-                                                    "Content-Length: {}\r\n\r\n{}",
-                                                    response_json.len(),
-                                                    response_json
-                                                );
-
-                                                eprintln!("[sc_launcher] sending codeAction response: {} bytes", response_json.len());
-
-                                                let mut stdout = io::stdout();
-                                                if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
-                                                    eprintln!("[sc_launcher] failed to write codeAction response: {}", e);
-                                                }
-                                                let _ = stdout.flush();
-
-                                                // Don't forward - we handled it
-                                                if let Some(request_id) = RequestId::from_json(id) {
-                                                    if let Ok(mut set) = responded_ids.lock() {
-                                                        set.insert(request_id);
-                                                    }
-                                                }
-                                                should_forward = false;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Handle workspace/executeCommand for supercollider.evaluate
-                                // This is the flicker-free eval path - no terminal involved
-                                if method == "workspace/executeCommand" {
-                                    if let Some(params) = json.get("params") {
-                                        if let Some(command) = params.get("command").and_then(|c| c.as_str()) {
-                                            if command == "supercollider.evaluate" {
-                                                if let Some(id) = json.get("id") {
-                                                    // Extract code from arguments
-                                                    let code = params.get("arguments")
-                                                        .and_then(|args| args.as_array())
-                                                        .and_then(|arr| arr.first())
-                                                        .and_then(|c| c.as_str())
-                                                        .unwrap_or("");
-
-                                                    if verbose {
-                                                        eprintln!("[sc_launcher] INTERCEPTING supercollider.evaluate ({} bytes)", code.len());
-                                                    }
-
-                                                    // Send eval to sclang via UDP (fire-and-forget)
-                                                    let eval_id = next_lsp_request_id();
-                                                    let eval_request = create_execute_command_request(
-                                                        eval_id,
-                                                        "supercollider.eval",
-                                                        vec![serde_json::json!(code)],
-                                                    );
-                                                    if let Err(e) = http::send_lsp_payload(&eval_socket, &eval_request) {
-                                                        eprintln!("[sc_launcher] failed to send eval to sclang: {}", e);
-                                                    }
-
-                                                    // Respond to Zed immediately
-                                                    let response = serde_json::json!({
-                                                        "jsonrpc": JSONRPC_VERSION,
-                                                        "id": id,
-                                                        "result": null
-                                                    });
-                                                    let response_json = serde_json::to_string(&response)
-                                                        .expect("response must serialize");
-                                                    let response_msg = format!(
-                                                        "Content-Length: {}\r\n\r\n{}",
-                                                        response_json.len(),
-                                                        response_json
-                                                    );
-                                                    let mut stdout = io::stdout();
-                                                    if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
-                                                        eprintln!("[sc_launcher] failed to write executeCommand response: {}", e);
-                                                    }
-                                                    let _ = stdout.flush();
-
-                                                    // Record as responded and don't forward to sclang
-                                                    if let Some(request_id) = RequestId::from_json(id) {
-                                                        if let Ok(mut set) = responded_ids.lock() {
-                                                            set.insert(request_id);
-                                                        }
-                                                    }
-                                                    should_forward = false;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                // NOTE: workspace/executeCommand is forwarded to sclang
+                                // sclang's ExecuteCommandProvider handles supercollider.evaluateSelection, .eval, etc.
                             }
                         }
                     }
