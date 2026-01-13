@@ -1,7 +1,7 @@
 # Research: Flicker-Free Evaluation in Zed
 
 **Date:** 2026-01-13
-**Status:** Phase 1 COMPLETE, Phase 2 ready
+**Status:** Phase 2 IN PROGRESS - filtering implemented, needs debugging
 **BD Tasks:**
 - ~~zed-supercollider-ysj (Phase 1)~~ DONE
 - zed-supercollider-57z (Phase 2: keybindings) READY
@@ -361,6 +361,28 @@ Key architecture:
 - Phase 2: Keybindings (zed-supercollider-57z)
 - Phase 3: Code Lenses (zed-supercollider-8v2)
 - Phase 4: Cleanup (zed-supercollider-hai)
+
+## Phase 2 Progress (2026-01-13)
+
+**What was implemented:**
+- Code action filtering in launcher (`filter_to_single_eval_action`)
+- Returns single best eval action: Selection > Block > Line priority
+- Updated all 3 keymap files to use `editor::ToggleCodeActions` for eval
+- Added debug logging: `[sc_launcher] FILTER: X actions -> Y action(s)`
+
+**Issue:** Menu still appears despite filtering to 1 action
+- User reports needing to press Enter twice (once to show menu, once to select)
+- Zed's auto-execute may only work for task-linked code actions, not pure LSP actions
+- Need to investigate Zed's exact auto-execute criteria
+
+**Also discovered:**
+- Project-level keymaps (`.zed/keymap.json`) don't auto-load - users must copy to personal keymap
+- Help system is broken (404 errors) - filed bd task zed-supercollider-h61
+
+**Next steps:**
+1. Debug why filtering doesn't trigger auto-execute
+2. Consider alternative: bind directly to a specific code action kind if Zed supports it
+3. Consider alternative: use tasks for eval but find way to eliminate flicker
 
 ## Testing Checklist
 
