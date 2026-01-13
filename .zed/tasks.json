@@ -22,7 +22,7 @@
     "hide": "never"
   },
   {
-    "label": "SC: Evaluate",
+    "label": "Z: Run (task)",
     "command": "bash",
     "args": [
       "-c",

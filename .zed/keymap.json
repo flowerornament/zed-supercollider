@@ -4,6 +4,9 @@
 //
 // SC IDE Reference: https://doc.sccode.org/Reference/KeyboardShortcuts.html
 //
+// Eval uses LSP code actions (no terminal flicker). Shows menu, press Enter.
+// Menu shows: "▶ Run" (task) and "SC: Evaluate Line/Block" (LSP, no flicker).
+//
 // NOTE: This overrides some Zed defaults (Cmd+., Cmd+B, Cmd+D).
 // For non-conflicting bindings, use keymap-zed-native.json instead.
 [
@@ -13,26 +16,23 @@
   {
     "context": "Editor && (extension == sc || extension == scd)",
     "bindings": {
-      // === Code Evaluation (Flicker-Free via LSP Code Actions) ===
-      // Cmd+Enter or Shift+Enter - smart eval (block if in block, line otherwise) - instant!
+      // === Code Evaluation (via LSP Code Actions - no flicker) ===
+      // Shows menu with eval options, press Enter to confirm
       "cmd-enter": "editor::ToggleCodeActions",
       "shift-enter": "editor::ToggleCodeActions",
 
       // === Stop (CRITICAL) ===
       // SC IDE: Cmd+. stops all sounds - this is muscle memory for all SC users
-      // NOTE: Overrides Zed's CodeAction menu (use tasks menu instead: Cmd+Shift+R)
+      // NOTE: Overrides Zed's CodeAction menu (use Ctrl+. instead)
       "cmd-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }],
 
       // === Server Control ===
-      // SC IDE: Cmd+B boots server
       "cmd-b": ["task::Spawn", { "task_name": "SC: Boot Server" }],
 
       // === Recompile ===
-      // SC IDE: Cmd+K recompiles
       "cmd-k": ["task::Spawn", { "task_name": "SC: Recompile" }],
 
       // === Help ===
-      // SC IDE: Cmd+D opens help for word at cursor
       "cmd-d": ["task::Spawn", { "task_name": "SC: Help (Browser)" }],
       "cmd-shift-d": ["task::Spawn", { "task_name": "SC: Help (Terminal)" }],
       "cmd-alt-d": ["task::Spawn", { "task_name": "SC: Help (Window)" }]
@@ -45,7 +45,7 @@
   {
     "context": "Editor",
     "bindings": {
-      // Post window (useful even outside SC files)
+      // Post window
       "ctrl-shift-p": ["task::Spawn", { "task_name": "SC: Post Window" }]
     }
   }

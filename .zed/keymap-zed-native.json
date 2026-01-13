@@ -2,8 +2,8 @@
 // Uses Ctrl prefix to avoid ALL conflicts with Zed's default keybindings.
 // Copy or merge into your personal keymap (~/.config/zed/keymap.json).
 //
-// This keymap is designed for users who want SC integration without
-// overriding any Zed defaults (Cmd+., Cmd+B, Cmd+D, etc. all work normally).
+// Eval uses LSP code actions (no terminal flicker). Shows menu, press Enter.
+// Menu shows: "▶ Run" (task) and "SC: Evaluate Line/Block" (LSP, no flicker).
 [
   // ============================================================
   // SuperCollider files (.sc, .scd)
@@ -11,12 +11,13 @@
   {
     "context": "Editor && (extension == sc || extension == scd)",
     "bindings": {
-      // === Code Evaluation (Flicker-Free via LSP Code Actions) ===
-      // Ctrl+Enter - smart eval (block if in block, line otherwise) - instant!
+      // === Code Evaluation (via LSP Code Actions - no flicker) ===
+      // Shows menu with eval options, press Enter to confirm
       "ctrl-enter": "editor::ToggleCodeActions",
+      // Line eval - select line first, then show code actions
+      "ctrl-shift-enter": ["workspace::SendKeystrokes", "cmd-l ctrl-enter"],
 
       // === Stop (CRITICAL) ===
-      // Ctrl+. - stop all sounds (mirrors Cmd+. but doesn't override it)
       "ctrl-.": ["task::Spawn", { "task_name": "SC: Stop (CmdPeriod)" }],
 
       // === Server Control ===
