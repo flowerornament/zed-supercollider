@@ -922,7 +922,7 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
     let capabilities = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
             open_close: Some(true),
-            change: Some(TextDocumentSyncKind::INCREMENTAL),
+            change: Some(TextDocumentSyncKind::FULL),  // Need full text for code action extraction
             will_save: None,
             will_save_wait_until: None,
             save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
@@ -970,6 +970,7 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
         execute_command_provider: Some(ExecuteCommandOptions {
             commands: vec![
                 "supercollider.eval".into(),
+                "supercollider.evaluate".into(),  // flicker-free eval via code action
                 "supercollider.evaluateSelection".into(),
                 "supercollider.internal.bootServer".into(),
                 "supercollider.internal.rebootServer".into(),
@@ -1600,8 +1601,112 @@ fn pump_stdin_to_udp(
 
                                                     let lines: Vec<&str> = content.lines().collect();
                                                     let code = if start_line == end_line && start_char == end_char {
-                                                        // No selection - extract current line
-                                                        lines.get(start_line).unwrap_or(&"").to_string()
+                                                        // No selection - find enclosing () block, else current line
+                                                        // Convert line/char to absolute offset
+                                                        let mut cursor_offset = 0usize;
+                                                        for (i, line) in lines.iter().enumerate() {
+                                                            if i < start_line {
+                                                                cursor_offset += line.len() + 1; // +1 for newline
+                                                            } else {
+                                                                cursor_offset += start_char.min(line.len());
+                                                                break;
+                                                            }
+                                                        }
+
+                                                        // Find enclosing () block
+                                                        let bytes = content.as_bytes();
+                                                        let cursor_char = bytes.get(cursor_offset.min(bytes.len().saturating_sub(1)));
+
+                                                        // Handle cursor ON a paren specially
+                                                        let (block_start, block_end) = if cursor_char == Some(&b'(') {
+                                                            // Cursor on opening paren - find matching close
+                                                            let start_idx = cursor_offset;
+                                                            let mut depth = 1i32;
+                                                            let mut end_idx = None;
+                                                            for i in (start_idx + 1)..bytes.len() {
+                                                                match bytes.get(i) {
+                                                                    Some(b'(') => depth += 1,
+                                                                    Some(b')') => {
+                                                                        depth -= 1;
+                                                                        if depth == 0 {
+                                                                            end_idx = Some(i);
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    _ => {}
+                                                                }
+                                                            }
+                                                            (Some(start_idx), end_idx)
+                                                        } else if cursor_char == Some(&b')') {
+                                                            // Cursor on closing paren - find matching open
+                                                            let end_idx = cursor_offset;
+                                                            let mut depth = 1i32;
+                                                            let mut start_idx = None;
+                                                            for i in (0..end_idx).rev() {
+                                                                match bytes.get(i) {
+                                                                    Some(b')') => depth += 1,
+                                                                    Some(b'(') => {
+                                                                        depth -= 1;
+                                                                        if depth == 0 {
+                                                                            start_idx = Some(i);
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    _ => {}
+                                                                }
+                                                            }
+                                                            (start_idx, Some(end_idx))
+                                                        } else {
+                                                            // Cursor inside - find enclosing block
+                                                            let mut found_start: Option<usize> = None;
+                                                            let mut depth = 0i32;
+                                                            let scan_start = cursor_offset.min(bytes.len().saturating_sub(1));
+                                                            for i in (0..=scan_start).rev() {
+                                                                match bytes.get(i) {
+                                                                    Some(b')') => depth += 1,
+                                                                    Some(b'(') => {
+                                                                        if depth == 0 {
+                                                                            found_start = Some(i);
+                                                                            break;
+                                                                        }
+                                                                        depth -= 1;
+                                                                    }
+                                                                    _ => {}
+                                                                }
+                                                            }
+
+                                                            let found_end = if let Some(start_idx) = found_start {
+                                                                depth = 1;
+                                                                let mut end_idx = None;
+                                                                for i in (start_idx + 1)..bytes.len() {
+                                                                    match bytes.get(i) {
+                                                                        Some(b'(') => depth += 1,
+                                                                        Some(b')') => {
+                                                                            depth -= 1;
+                                                                            if depth == 0 {
+                                                                                end_idx = Some(i);
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                        _ => {}
+                                                                    }
+                                                                }
+                                                                end_idx
+                                                            } else {
+                                                                None
+                                                            };
+                                                            (found_start, found_end)
+                                                        };
+
+                                                        if let (Some(start_idx), Some(end_idx)) = (block_start, block_end) {
+                                                            // Extract the block including parens
+                                                            content.get(start_idx..=end_idx)
+                                                                .unwrap_or("")
+                                                                .to_string()
+                                                        } else {
+                                                            // No enclosing block - fall back to current line
+                                                            lines.get(start_line).unwrap_or(&"").to_string()
+                                                        }
                                                     } else {
                                                         // Selection exists - extract selected text
                                                         if start_line == end_line {
