@@ -517,6 +517,32 @@ pub fn read_lsp_message<R: BufRead>(reader: &mut R) -> io::Result<Option<Vec<u8>
 }
 
 // ============================================================================
+// Message Cache and Flush Helpers
+// ============================================================================
+
+/// Try to get a cached message and send it via UDP.
+/// Logs errors but doesn't propagate them.
+fn try_send_cached(cache: &Mutex<Option<Vec<u8>>>, socket: &UdpSocket, msg_name: &str) {
+    let Some(msg) = cache.lock().ok().and_then(|m| m.clone()) else {
+        return;
+    };
+    if let Err(err) = send_with_retry(socket, &msg) {
+        eprintln!("[sc_launcher] failed to re-send {}: {err}", msg_name);
+    }
+}
+
+/// Flush all pending messages via UDP, logging any errors.
+fn flush_pending(socket: &UdpSocket, messages: &mut Vec<Vec<u8>>, log_errors: bool) {
+    for msg in messages.drain(..) {
+        if let Err(err) = send_with_retry(socket, &msg) {
+            if log_errors {
+                eprintln!("[sc_launcher] failed to send buffered UDP message: {err}");
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Stdin → UDP Bridge
 // ============================================================================
 
@@ -587,30 +613,10 @@ pub fn pump_stdin_to_udp(
                                 last_ready_count, current_ready_count
                             );
                         }
-                        // Re-send cached initialize
-                        if let Some(init_msg) =
-                            resend_initialize.lock().ok().and_then(|m| m.clone())
-                        {
-                            if let Err(err) = send_with_retry(&sender_socket, &init_msg) {
-                                eprintln!("[sc_launcher] failed to re-send initialize: {err}");
-                            }
-                        }
-                        // Re-send cached didOpen
-                        if let Some(open_msg) =
-                            resend_did_open.lock().ok().and_then(|m| m.clone())
-                        {
-                            if let Err(err) = send_with_retry(&sender_socket, &open_msg) {
-                                eprintln!("[sc_launcher] failed to re-send didOpen: {err}");
-                            }
-                        }
-                        // Re-send cached didChange
-                        if let Some(change_msg) =
-                            resend_did_change.lock().ok().and_then(|m| m.clone())
-                        {
-                            if let Err(err) = send_with_retry(&sender_socket, &change_msg) {
-                                eprintln!("[sc_launcher] failed to re-send didChange: {err}");
-                            }
-                        }
+                        // Re-send cached state
+                        try_send_cached(&resend_initialize, &sender_socket, "initialize");
+                        try_send_cached(&resend_did_open, &sender_socket, "didOpen");
+                        try_send_cached(&resend_did_change, &sender_socket, "didChange");
                     }
                     last_ready_count = current_ready_count;
                 }
