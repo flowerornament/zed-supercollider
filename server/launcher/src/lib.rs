@@ -73,6 +73,5 @@ pub enum Mode {
 // Re-exports for public API and backwards compatibility
 pub use bridge::{create_execute_command_request, next_lsp_request_id, RequestId};
 pub use http::run_http_server;
-pub use logging::verbose_logging_enabled;
 pub use orchestrator::{graceful_shutdown_child, run_lsp_bridge, IS_RUNNING};
 pub use process::{remove_pid_file, write_pid_file};

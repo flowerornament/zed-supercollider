@@ -3,6 +3,7 @@
 //! Provides timestamp generation, log directory management, and child process
 //! stream logging with LSP READY detection.
 
+use log::debug;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,11 +68,6 @@ pub fn debug_file_logs_enabled() -> bool {
     std::env::var("SC_LAUNCHER_DEBUG_LOGS").is_ok()
 }
 
-/// Check if verbose logging is enabled (SC_LAUNCHER_DEBUG or SC_LAUNCHER_DEBUG_LOGS).
-pub fn verbose_logging_enabled() -> bool {
-    debug_file_logs_enabled() || std::env::var("SC_LAUNCHER_DEBUG").is_ok()
-}
-
 /// Check if post window logging is enabled (SC_LAUNCHER_POST_LOG != "0").
 pub fn post_log_enabled() -> bool {
     std::env::var("SC_LAUNCHER_POST_LOG")
@@ -99,7 +95,6 @@ pub fn log_child_stream<R>(
 where
     R: Read + Send + 'static,
 {
-    let verbose = verbose_logging_enabled();
     let log_to_file = post_log_enabled();
     thread::Builder::new()
         .name(format!("{label}-reader"))
@@ -116,11 +111,11 @@ where
                 None
             };
 
-            if post_file.is_some() && label == "sclang stdout" && verbose {
-                eprintln!("[sc_launcher] sclang output -> {}", post_log_path.display());
+            if post_file.is_some() && label == "sclang stdout" {
+                debug!("sclang output -> {}", post_log_path.display());
             } else if log_to_file && post_file.is_none() {
-                eprintln!(
-                    "[sc_launcher] warning: failed to open post log at {}",
+                debug!(
+                    "warning: failed to open post log at {}",
                     post_log_path.display()
                 );
             }
@@ -133,8 +128,11 @@ where
                 }
                 let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
                 if !trimmed.is_empty() {
-                    if verbose || !log_to_file {
+                    // Log child output at debug level (or to stderr if no file logging)
+                    if !log_to_file {
                         eprintln!("[{label}] {trimmed}");
+                    } else {
+                        debug!("[{label}] {trimmed}");
                     }
 
                     // Write stdout to post window log file (filter out verbose LSP debug messages)
@@ -157,13 +155,7 @@ where
                         // Increment ready count for recompile detection
                         if let Some(ref counter) = ready_count {
                             let old_count = counter.fetch_add(1, Ordering::SeqCst);
-                            if verbose {
-                                eprintln!(
-                                    "[sc_launcher] LSP READY count: {} -> {}",
-                                    old_count,
-                                    old_count + 1
-                                );
-                            }
+                            debug!("LSP READY count: {} -> {}", old_count, old_count + 1);
                         }
                     }
                 }
@@ -196,13 +188,6 @@ mod tests {
         let dir = log_dir();
         // Should return some path (either from env or system temp)
         assert!(!dir.as_os_str().is_empty());
-    }
-
-    #[test]
-    fn test_verbose_logging_disabled_by_default() {
-        // In test environment without SC_LAUNCHER_DEBUG set, should be false
-        // (unless CI sets it, so we just verify it returns a bool)
-        let _ = verbose_logging_enabled();
     }
 
     #[test]

@@ -4,10 +4,11 @@
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
+use log::{debug, info};
 use std::io::Write;
 use std::process::Stdio;
 
-use sc_launcher::logging::{debug_file_logs_enabled, log_dir, timestamp, verbose_logging_enabled};
+use sc_launcher::logging::{debug_file_logs_enabled, log_dir, timestamp};
 use sc_launcher::orchestrator::run_lsp_bridge;
 use sc_launcher::process::{detect_sclang, make_sclang_command};
 use sc_launcher::{Args, Mode};
@@ -17,6 +18,19 @@ use sc_launcher::{Args, Mode};
 // ============================================================================
 
 fn main() -> Result<()> {
+    // Honor legacy SC_LAUNCHER_DEBUG if RUST_LOG not set
+    if std::env::var("RUST_LOG").is_err() && std::env::var("SC_LAUNCHER_DEBUG").is_ok() {
+        std::env::set_var("RUST_LOG", "sc_launcher=debug");
+    }
+
+    // Initialize structured logging
+    env_logger::Builder::from_env(
+        env_logger::Env::default().filter_or("RUST_LOG", "sc_launcher=info"),
+    )
+    .format_target(false)
+    .format_timestamp_millis()
+    .init();
+
     // Write startup log to a file since stderr may be buffered/filtered by Zed
     if debug_file_logs_enabled() {
         let log_path = log_dir().join("sc_launcher_startup.log");
@@ -38,16 +52,13 @@ fn main() -> Result<()> {
         }
     }
 
-    // Log startup details only in verbose mode
-    if verbose_logging_enabled() {
-        eprintln!("[sc_launcher] ======== MAIN STARTED ========");
-        eprintln!(
-            "[sc_launcher] PID={} args={:?}",
-            std::process::id(),
-            std::env::args().collect::<Vec<_>>()
-        );
-        let _ = std::io::stderr().flush();
-    }
+    // Log startup details
+    info!("======== MAIN STARTED ========");
+    debug!(
+        "PID={} args={:?}",
+        std::process::id(),
+        std::env::args().collect::<Vec<_>>()
+    );
 
     let args = Args::parse();
 

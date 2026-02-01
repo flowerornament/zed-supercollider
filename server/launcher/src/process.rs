@@ -4,10 +4,11 @@
 //! and cleanup of orphaned processes.
 
 use anyhow::{anyhow, Context, Result};
+use log::{debug, warn};
 use std::path::Path;
 use std::process::Command;
 
-use crate::logging::{log_dir, verbose_logging_enabled};
+use crate::logging::log_dir;
 use crate::Args;
 
 // ============================================================================
@@ -74,9 +75,7 @@ pub fn write_pid_file(launcher_pid: u32, sclang_pid: u32) -> Result<()> {
     });
     std::fs::write(&path, content.to_string())
         .with_context(|| format!("failed to write PID file at {:?}", path))?;
-    if verbose_logging_enabled() {
-        eprintln!("[sc_launcher] wrote PID file at {:?}", path);
-    }
+    debug!("wrote PID file at {:?}", path);
     Ok(())
 }
 
@@ -85,12 +84,9 @@ pub fn remove_pid_file() {
     let path = pid_file_path();
     if path.exists() {
         if let Err(e) = std::fs::remove_file(&path) {
-            eprintln!(
-                "[sc_launcher] warning: failed to remove PID file {:?}: {}",
-                path, e
-            );
-        } else if verbose_logging_enabled() {
-            eprintln!("[sc_launcher] removed PID file at {:?}", path);
+            warn!("failed to remove PID file {:?}: {}", path, e);
+        } else {
+            debug!("removed PID file at {:?}", path);
         }
     }
 }
@@ -125,10 +121,7 @@ pub fn kill_process(pid: u32) {
 
         // Check if still alive, use SIGKILL if needed
         if is_process_alive(pid) {
-            eprintln!(
-                "[sc_launcher] sclang {} didn't respond to SIGTERM, using SIGKILL",
-                pid
-            );
+            warn!("sclang {} didn't respond to SIGTERM, using SIGKILL", pid);
             let _ = signal::send_sigkill(pid);
         }
     }
@@ -169,19 +162,17 @@ pub fn cleanup_orphaned_processes() {
         let launcher_alive = is_process_alive(info.launcher_pid as u32);
 
         if launcher_alive {
-            eprintln!(
-                "[sc_launcher] warning: another launcher (pid={}) appears to be running",
+            warn!(
+                "another launcher (pid={}) appears to be running",
                 info.launcher_pid
             );
         } else {
             // Old launcher is dead - check if sclang is orphaned
             if is_process_alive(info.sclang_pid as u32) {
-                if verbose_logging_enabled() {
-                    eprintln!(
-                        "[sc_launcher] found orphaned sclang (pid={}) from dead launcher (pid={}), killing",
-                        info.sclang_pid, info.launcher_pid
-                    );
-                }
+                debug!(
+                    "found orphaned sclang (pid={}) from dead launcher (pid={}), killing",
+                    info.sclang_pid, info.launcher_pid
+                );
                 kill_process(info.sclang_pid as u32);
             }
             // Remove stale PID file
@@ -229,12 +220,10 @@ fn cleanup_orphaned_by_ppid(process_name: &str) {
             continue;
         }
 
-        if verbose_logging_enabled() {
-            eprintln!(
-                "[sc_launcher] found orphaned {} process (pid={}, ppid=1), killing",
-                process_name, pid
-            );
-        }
+        debug!(
+            "found orphaned {} process (pid={}, ppid=1), killing",
+            process_name, pid
+        );
         kill_process(pid);
     }
 }
@@ -278,9 +267,7 @@ pub fn detect_sclang(args: &Args) -> Result<String> {
 
     if let Ok(env_path) = std::env::var("SCLANG_PATH") {
         if Path::new(&env_path).exists() {
-            if verbose_logging_enabled() {
-                eprintln!("[sc_launcher] using sclang from SCLANG_PATH={}", env_path);
-            }
+            debug!("using sclang from SCLANG_PATH={}", env_path);
             return Ok(env_path);
         }
     }
@@ -293,12 +280,7 @@ pub fn detect_sclang(args: &Args) -> Result<String> {
     {
         let default_mac = "/Applications/SuperCollider.app/Contents/MacOS/sclang";
         if Path::new(default_mac).exists() {
-            if verbose_logging_enabled() {
-                eprintln!(
-                    "[sc_launcher] using default macOS sclang at {}",
-                    default_mac
-                );
-            }
+            debug!("using default macOS sclang at {}", default_mac);
             return Ok(default_mac.to_string());
         }
     }
@@ -349,9 +331,7 @@ pub fn find_vendored_quark_path() -> Option<String> {
         }
     }
 
-    if verbose_logging_enabled() {
-        eprintln!("[sc_launcher] no vendored LanguageServer.quark found in expected locations");
-    }
+    debug!("no vendored LanguageServer.quark found in expected locations");
     None
 }
 

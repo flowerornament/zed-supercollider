@@ -5,8 +5,8 @@
 
 use anyhow::{anyhow, Context, Result};
 use fslock::LockFile;
+use log::{debug, error, info, warn};
 use std::collections::HashSet;
-use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -20,7 +20,7 @@ use crate::bridge::{
 };
 use crate::constants::*;
 use crate::http;
-use crate::logging::{log_child_stream, log_dir, verbose_logging_enabled};
+use crate::logging::{log_child_stream, log_dir};
 use crate::process::{
     cleanup_orphaned_processes, ensure_quark_present, find_scide_scqt_path,
     find_vendored_quark_path, installed_quark_paths, make_sclang_command, remove_pid_file,
@@ -53,12 +53,7 @@ pub struct RunningGuard {
 impl Drop for RunningGuard {
     fn drop(&mut self) {
         IS_RUNNING.store(false, Ordering::SeqCst);
-        if verbose_logging_enabled() {
-            eprintln!(
-                "[sc_launcher] run token {}: cleared running guard",
-                self.run_token
-            );
-        }
+        debug!("run token {}: cleared running guard", self.run_token);
     }
 }
 
@@ -101,12 +96,10 @@ pub fn release_child_state(state: &Arc<Mutex<Option<ChildState>>>) {
     if let Ok(mut slot) = state.lock() {
         if let Some(child) = slot.take() {
             child.owned.store(false, Ordering::SeqCst);
-            if verbose_logging_enabled() {
-                eprintln!(
-                    "[sc_launcher] run token {}: released tracked sclang pid {}",
-                    child.run_token, child.pid
-                );
-            }
+            debug!(
+                "run token {}: released tracked sclang pid {}",
+                child.run_token, child.pid
+            );
         }
     }
 }
@@ -135,14 +128,11 @@ pub fn graceful_shutdown_child(
     timeout: std::time::Duration,
     run_token: u64,
 ) -> Result<std::process::ExitStatus> {
-    let verbose = verbose_logging_enabled();
     let pid = child.id();
-    if verbose {
-        eprintln!(
-            "[sc_launcher] run token {}: initiating graceful shutdown for pid {} (timeout {:?})",
-            run_token, pid, timeout
-        );
-    }
+    debug!(
+        "run token {}: initiating graceful shutdown for pid {} (timeout {:?})",
+        run_token, pid, timeout
+    );
 
     // Attempt LSP shutdown with retries
     let mut shutdown_sent = false;
@@ -150,21 +140,11 @@ pub fn graceful_shutdown_child(
         match request_lsp_shutdown_with_result(udp_socket) {
             Ok(_) => {
                 shutdown_sent = true;
-                if verbose {
-                    eprintln!(
-                        "[sc_launcher] LSP shutdown/exit sent successfully (attempt {})",
-                        attempt
-                    );
-                }
+                debug!("LSP shutdown/exit sent successfully (attempt {})", attempt);
                 break;
             }
             Err(e) => {
-                if verbose {
-                    eprintln!(
-                        "[sc_launcher] LSP shutdown attempt {} failed: {}",
-                        attempt, e
-                    );
-                }
+                debug!("LSP shutdown attempt {} failed: {}", attempt, e);
                 if attempt < SHUTDOWN_RETRY_ATTEMPTS {
                     thread::sleep(millis_to_duration(SHUTDOWN_RETRY_DELAY_MS));
                 }
@@ -173,7 +153,7 @@ pub fn graceful_shutdown_child(
     }
 
     if !shutdown_sent {
-        eprintln!("[sc_launcher] WARNING: could not send LSP shutdown, will rely on SIGTERM");
+        warn!("could not send LSP shutdown, will rely on SIGTERM");
     }
 
     // Close sclang's stdin to signal EOF
@@ -186,9 +166,7 @@ pub fn graceful_shutdown_child(
     while start.elapsed() < timeout {
         match child.try_wait() {
             Ok(Some(status)) => {
-                if verbose {
-                    eprintln!("[sc_launcher] sclang exited gracefully with {}", status);
-                }
+                debug!("sclang exited gracefully with {}", status);
                 return Ok(status);
             }
             Ok(None) => {}
@@ -202,12 +180,10 @@ pub fn graceful_shutdown_child(
         use crate::process::signal;
 
         let pid = child.id();
-        if verbose {
-            eprintln!(
-                "[sc_launcher] run token {}: sending SIGTERM to sclang pid {}",
-                run_token, pid
-            );
-        }
+        debug!(
+            "run token {}: sending SIGTERM to sclang pid {}",
+            run_token, pid
+        );
         let _ = signal::send_sigterm(pid);
 
         let term_start = std::time::Instant::now();
@@ -226,12 +202,7 @@ pub fn graceful_shutdown_child(
         }
     }
 
-    if verbose {
-        eprintln!(
-            "[sc_launcher] run token {}: forcing sclang shutdown with kill",
-            run_token
-        );
-    }
+    debug!("run token {}: forcing sclang shutdown with kill", run_token);
     child
         .kill()
         .context("failed to kill sclang process after shutdown request")?;
@@ -248,7 +219,6 @@ pub fn graceful_shutdown_child(
 /// This is the main entry point for LSP mode.
 pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let startup_start = Instant::now();
-    let verbose = verbose_logging_enabled();
 
     // Clean up any orphaned sclang processes from previous launcher instances
     cleanup_orphaned_processes();
@@ -259,9 +229,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let mut lock = LockFile::open(&lock_path)
         .map_err(|e| anyhow!("failed to open lock file {:?}: {}", lock_path, e))?;
     if !lock.try_lock().unwrap_or(false) {
-        if verbose {
-            eprintln!("[sc_launcher] waiting for previous instance to release lock...");
-        }
+        debug!("waiting for previous instance to release lock...");
         // Block until lock is available (previous instance exiting)
         lock.lock()
             .map_err(|e| anyhow!("failed to acquire lock: {}", e))?;
@@ -270,8 +238,8 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     let run_token = RUN_TOKEN.fetch_add(1, Ordering::SeqCst);
     if IS_RUNNING.swap(true, Ordering::SeqCst) {
-        eprintln!(
-            "[sc_launcher] run token {}: launcher already running; refusing second spawn",
+        error!(
+            "run token {}: launcher already running; refusing second spawn",
             run_token
         );
         return Err(anyhow!(
@@ -281,8 +249,8 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     }
     let _run_guard = RunningGuard { run_token };
     // Log version at startup to confirm which binary is running
-    eprintln!(
-        "[sc_launcher] v{} starting LSP bridge (pid={}, run={})",
+    info!(
+        "v{} starting LSP bridge (pid={}, run={})",
         env!("CARGO_PKG_VERSION"),
         std::process::id(),
         run_token
@@ -290,7 +258,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     let quark_ok = ensure_quark_present();
     if !quark_ok {
-        eprintln!("[sc_launcher] warning: LanguageServer.quark not found in downloaded-quarks; install it via SuperCollider's Quarks GUI or `Quarks.install(\"LanguageServer\");`");
+        warn!("LanguageServer.quark not found in downloaded-quarks; install it via SuperCollider's Quarks GUI or `Quarks.install(\"LanguageServer\");`");
     }
 
     let ports = allocate_udp_ports().context("failed to reserve UDP ports for LSP bridge")?;
@@ -320,21 +288,14 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let vendored_path = find_vendored_quark_path();
 
     if let Some(vendor_path) = vendored_path {
-        if verbose {
-            eprintln!(
-                "[sc_launcher] including vendored LanguageServer.quark at {}",
-                vendor_path
-            );
-        }
+        debug!("including vendored LanguageServer.quark at {}", vendor_path);
         command.arg("--include-path").arg(&vendor_path);
 
         for installed in installed_quark_paths() {
-            if verbose {
-                eprintln!(
-                    "[sc_launcher] excluding installed LanguageServer.quark at {}",
-                    installed.display()
-                );
-            }
+            debug!(
+                "excluding installed LanguageServer.quark at {}",
+                installed.display()
+            );
             command
                 .arg("--exclude-path")
                 .arg(installed.display().to_string());
@@ -344,26 +305,19 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         // The vendored quark provides its own Document class in scide_vscode/ that properly
         // delegates to LSPDocument for LSP-based document management.
         if let Some(scide_path) = find_scide_scqt_path(sclang) {
-            if verbose {
-                eprintln!(
-                    "[sc_launcher] excluding built-in scide_scqt at {}",
-                    scide_path
-                );
-            }
+            debug!("excluding built-in scide_scqt at {}", scide_path);
             command.arg("--exclude-path").arg(scide_path);
         }
     }
 
-    if verbose {
-        eprintln!(
-            "[sc_launcher] spawning sclang (client={}, server={}, log_level={})",
-            ports.client_port,
-            ports.server_port,
-            args.log_level
-                .as_deref()
-                .unwrap_or("error (LanguageServer default)")
-        );
-    }
+    debug!(
+        "spawning sclang (client={}, server={}, log_level={})",
+        ports.client_port,
+        ports.server_port,
+        args.log_level
+            .as_deref()
+            .unwrap_or("error (LanguageServer default)")
+    );
 
     let mut child = command
         .spawn()
@@ -377,15 +331,10 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
             run_token,
             owned: AtomicBool::new(true),
         });
-        if verbose {
-            eprintln!(
-                "[sc_launcher] run token {}: spawned sclang pid={}",
-                run_token, pid
-            );
-        }
+        debug!("run token {}: spawned sclang pid={}", run_token, pid);
         // Write PID file for safe cleanup by external tools
         if let Err(e) = write_pid_file(std::process::id(), pid) {
-            eprintln!("[sc_launcher] warning: {}", e);
+            warn!("{}", e);
         }
     }
 
@@ -431,10 +380,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     // Start the stdin bridge IMMEDIATELY to capture the initialize request from Zed.
     // The bridge will buffer messages until sclang is ready.
-    if verbose {
-        eprintln!("[sc_launcher] about to spawn stdin_bridge thread");
-        let _ = std::io::stderr().flush();
-    }
+    debug!("about to spawn stdin_bridge thread");
     let sclang_ready = Arc::new(AtomicBool::new(false));
     let stdin_bridge = {
         let udp = udp_sender
@@ -445,10 +391,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         let ready_flag = sclang_ready.clone();
         let responded = responded_ids.clone();
         let recompile_count = ready_count.clone();
-        if verbose {
-            eprintln!("[sc_launcher] spawning stdin->udp thread NOW");
-            let _ = std::io::stderr().flush();
-        }
+        debug!("spawning stdin->udp thread NOW");
         let handle = thread::Builder::new()
             .name("stdin->udp".into())
             .spawn(move || {
@@ -462,10 +405,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
                 )
             })
             .context("failed to spawn stdin->udp bridge thread")?;
-        if verbose {
-            eprintln!("[sc_launcher] stdin->udp thread spawned successfully");
-            let _ = std::io::stderr().flush();
-        }
+        debug!("stdin->udp thread spawned successfully");
         handle
     };
 
@@ -486,18 +426,16 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     loop {
         if let Ok(()) = ready_rx.try_recv() {
             let startup_elapsed = startup_start.elapsed();
-            if verbose {
-                eprintln!(
-                    "[sc_launcher] detected 'LSP READY' from sclang (startup: {:.2?})",
-                    startup_elapsed
-                );
-            }
+            debug!(
+                "detected 'LSP READY' from sclang (startup: {:.2?})",
+                startup_elapsed
+            );
             sclang_ready.store(true, Ordering::SeqCst);
             break;
         }
         if waited_ms >= max_wait_ms {
-            eprintln!(
-                "[sc_launcher] timed out waiting for 'LSP READY' ({}s); proceeding anyway",
+            warn!(
+                "timed out waiting for 'LSP READY' ({}s); proceeding anyway",
                 max_wait_ms / 1000
             );
             sclang_ready.store(true, Ordering::SeqCst);
@@ -536,7 +474,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
         if stdin_done_rx.try_recv().is_ok() {
             stdin_closed = true;
-            eprintln!("[sc_launcher] stdin closed, initiating graceful shutdown");
+            info!("stdin closed, initiating graceful shutdown");
 
             // First, perform graceful shutdown of sclang (sends LSP shutdown/exit)
             // This gives sclang time to process any final requests before we signal
@@ -577,12 +515,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     if status.success() {
         Ok(())
     } else if stdin_closed {
-        if verbose {
-            eprintln!(
-                "[sc_launcher] sclang exited after stdin closed ({})",
-                status
-            );
-        }
+        debug!("sclang exited after stdin closed ({})", status);
         Ok(())
     } else {
         Err(anyhow!("sclang exited with status {}", status))

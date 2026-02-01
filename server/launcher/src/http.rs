@@ -7,6 +7,7 @@
 //! - POST /convert-schelp - Convert .schelp to markdown
 
 use anyhow::{anyhow, Result};
+use log::{debug, error};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::io;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -17,7 +18,6 @@ use std::sync::Arc;
 use tiny_http::{Header, Method, Response, Server};
 
 use crate::bridge::{create_execute_command_request, next_lsp_request_id};
-use crate::logging::verbose_logging_enabled;
 
 // ============================================================================
 // Response Helpers
@@ -86,7 +86,6 @@ pub fn send_lsp_payload(udp_socket: &UdpSocket, payload: &serde_json::Value) -> 
 /// Run the HTTP server for eval requests.
 /// Accepts POST /eval with code in the body, sends workspace/executeCommand to sclang.
 pub fn run_http_server(port: u16, udp_socket: UdpSocket, shutdown: Arc<AtomicBool>) -> Result<()> {
-    let verbose = verbose_logging_enabled();
     let addr: SocketAddr = format!("127.0.0.1:{}", port)
         .parse()
         .map_err(|e| anyhow!("invalid address: {}", e))?;
@@ -108,19 +107,11 @@ pub fn run_http_server(port: u16, udp_socket: UdpSocket, shutdown: Arc<AtomicBoo
     // Convert to std TcpListener, then create tiny_http Server
     let listener: TcpListener = socket.into();
     let server = Server::from_listener(listener, None).map_err(|e| {
-        eprintln!(
-            "[sc_launcher] failed to start HTTP server on {}: {}",
-            addr, e
-        );
+        error!("failed to start HTTP server on {}: {}", addr, e);
         anyhow!("HTTP server bind failed: {}", e)
     })?;
 
-    if verbose {
-        eprintln!(
-            "[sc_launcher] HTTP eval server listening on http://{}",
-            addr
-        );
-    }
+    debug!("HTTP eval server listening on http://{}", addr);
 
     // Set a timeout so we can check shutdown flag periodically
     server
@@ -129,13 +120,11 @@ pub fn run_http_server(port: u16, udp_socket: UdpSocket, shutdown: Arc<AtomicBoo
         .for_each(|mut request| {
             let response = handle_http_request(&mut request, &udp_socket);
             if let Err(err) = request.respond(response) {
-                eprintln!("[sc_launcher] failed to send HTTP response: {}", err);
+                error!("failed to send HTTP response: {}", err);
             }
         });
 
-    if verbose {
-        eprintln!("[sc_launcher] HTTP server shutting down");
-    }
+    debug!("HTTP server shutting down");
     Ok(())
 }
 
@@ -201,13 +190,11 @@ fn handle_eval(
 
     match send_lsp_payload(udp_socket, &lsp_request) {
         Ok(_) => {
-            if verbose_logging_enabled() {
-                eprintln!(
-                    "[sc_launcher] HTTP /eval sent {} bytes to sclang (id={})",
-                    body.len(),
-                    request_id
-                );
-            }
+            debug!(
+                "HTTP /eval sent {} bytes to sclang (id={})",
+                body.len(),
+                request_id
+            );
             // We don't wait for the LSP response - fire and forget for now
             // The result will be posted to sclang's post window
             let response_body = format!(
@@ -218,7 +205,7 @@ fn handle_eval(
             json_response_with_cors(&response_body, 202)
         }
         Err(err) => {
-            eprintln!("[sc_launcher] HTTP /eval failed to send UDP: {}", err);
+            error!("HTTP /eval failed to send UDP: {}", err);
             error_response(&format!("failed to send to sclang: {}", err), 502)
         }
     }
@@ -236,14 +223,12 @@ fn send_command(
 
     match send_lsp_payload(udp_socket, &lsp_request) {
         Ok(_) => {
-            if verbose_logging_enabled() {
-                eprintln!(
-                    "[sc_launcher] HTTP /{} sent command {} (id={})",
-                    command.split('.').next_back().unwrap_or(command),
-                    command,
-                    request_id
-                );
-            }
+            debug!(
+                "HTTP /{} sent command {} (id={})",
+                command.split('.').next_back().unwrap_or(command),
+                command,
+                request_id
+            );
             let response_body = format!(
                 r#"{{"status":"sent","command":"{}","request_id":{}}}"#,
                 command, request_id
@@ -251,8 +236,8 @@ fn send_command(
             json_response_with_cors(&response_body, 202)
         }
         Err(err) => {
-            eprintln!(
-                "[sc_launcher] HTTP /{} failed to send UDP: {}",
+            error!(
+                "HTTP /{} failed to send UDP: {}",
                 command.split('.').next_back().unwrap_or(command),
                 err
             );
