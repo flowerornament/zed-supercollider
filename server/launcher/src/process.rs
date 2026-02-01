@@ -197,33 +197,45 @@ pub fn cleanup_orphaned_processes() {
     }
 }
 
+/// Parse a ps output line into (pid, ppid, comm).
+#[cfg(unix)]
+fn parse_ps_line(line: &str) -> Option<(u32, u32, String)> {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let pid = parts[0].parse().ok()?;
+    let ppid = parts[1].parse().ok()?;
+    let comm = parts[2..].join(" ");
+    Some((pid, ppid, comm))
+}
+
 /// Scan for orphaned processes by name with PPID=1 and kill them.
 #[cfg(unix)]
 fn cleanup_orphaned_by_ppid(process_name: &str) {
     // Use ps to find processes with PPID=1 (orphaned, reparented to init)
-    let output = Command::new("ps").args(["-eo", "pid,ppid,comm"]).output();
+    let Ok(output) = Command::new("ps").args(["-eo", "pid,ppid,comm"]).output() else {
+        return;
+    };
 
-    if let Ok(output) = output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines().skip(1) {
-            // Parse: "  PID  PPID COMM"
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                if let (Ok(pid), Ok(ppid)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                    let comm = parts[2..].join(" ");
-                    // Check if it's an orphaned process (PPID=1 means parent died)
-                    if ppid == 1 && comm.contains(process_name) {
-                        if verbose_logging_enabled() {
-                            eprintln!(
-                                "[sc_launcher] found orphaned {} process (pid={}, ppid=1), killing",
-                                process_name, pid
-                            );
-                        }
-                        kill_process(pid);
-                    }
-                }
-            }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines().skip(1) {
+        let Some((pid, ppid, comm)) = parse_ps_line(line) else {
+            continue;
+        };
+
+        // PPID=1 means parent died and process was reparented to init
+        if ppid != 1 || !comm.contains(process_name) {
+            continue;
         }
+
+        if verbose_logging_enabled() {
+            eprintln!(
+                "[sc_launcher] found orphaned {} process (pid={}, ppid=1), killing",
+                process_name, pid
+            );
+        }
+        kill_process(pid);
     }
 }
 

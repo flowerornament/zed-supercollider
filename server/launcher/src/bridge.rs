@@ -82,6 +82,47 @@ fn extract_lsp_info(message: &[u8]) -> Option<(JsonValue, String)> {
     Some((json, method))
 }
 
+/// Log verbose details about an LSP response (capabilities, response IDs).
+fn log_response_details(body: &[u8]) {
+    let Ok(json) = serde_json::from_slice::<JsonValue>(body) else {
+        return;
+    };
+
+    // Check for capabilities in result (initialize response)
+    if let Some(capabilities) = json.get("result").and_then(|r| r.get("capabilities")) {
+        eprintln!(
+            "[sc_launcher] *** SERVER CAPABILITIES ***:\n{}",
+            serde_json::to_string_pretty(capabilities).unwrap_or_default()
+        );
+    }
+
+    // Log all response ids for debugging
+    if let Some(id) = json.get("id") {
+        let id_type = if id.is_i64() {
+            "int"
+        } else if id.is_string() {
+            "str"
+        } else {
+            "?"
+        };
+        eprintln!("[sc_launcher] >> response id={} type={}", id, id_type);
+    }
+}
+
+/// Ensure JSON-RPC response has the required "jsonrpc": "2.0" field.
+/// Returns the patched body if modification was needed, None otherwise.
+fn patch_jsonrpc_version(body: &[u8]) -> Option<Vec<u8>> {
+    let mut value: JsonValue = serde_json::from_slice(body).ok()?;
+    if value.get("jsonrpc").is_some() {
+        return None; // Already has jsonrpc field
+    }
+    let JsonValue::Object(ref mut map) = value else {
+        return None;
+    };
+    map.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    serde_json::to_vec(&value).ok()
+}
+
 /// Check if a response should be suppressed (we already responded to this request ID).
 fn should_suppress_response(
     body: &[u8],
@@ -322,20 +363,13 @@ pub fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
 
     // Log what we're sending (extract method if possible)
     if verbose {
-        if let Ok(msg_str) = std::str::from_utf8(message) {
-            if let Some(body_start) = msg_str.find("\r\n\r\n") {
-                let body = &msg_str[body_start + 4..];
-                if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
-                    if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
-                        eprintln!(
-                            "[sc_launcher] >>> SENDING to sclang: method={} id={:?} size={}",
-                            method,
-                            json.get("id"),
-                            message.len()
-                        );
-                    }
-                }
-            }
+        if let Some((json, method)) = extract_lsp_info(message) {
+            eprintln!(
+                "[sc_launcher] >>> SENDING to sclang: method={} id={:?} size={}",
+                method,
+                json.get("id"),
+                message.len()
+            );
         }
     }
 
@@ -911,26 +945,13 @@ pub fn pump_udp_to_stdout(
                         expected_len = None;
 
                         // Ensure JSON-RPC responses include the required jsonrpc version tag.
-                        let mut patched = false;
-                        if let Ok(mut value) = serde_json::from_slice::<JsonValue>(&body) {
-                            if value.get("jsonrpc").is_none() {
-                                if let JsonValue::Object(ref mut map) = value {
-                                    map.insert(
-                                        "jsonrpc".to_string(),
-                                        JsonValue::String("2.0".to_string()),
-                                    );
-                                    if let Ok(vec) = serde_json::to_vec(&value) {
-                                        body = vec;
-                                        patched = true;
-                                    }
-                                }
+                        if let Some(patched_body) = patch_jsonrpc_version(&body) {
+                            body = patched_body;
+                            if verbose {
+                                eprintln!(
+                                    "[sc_launcher] patched missing jsonrpc field in server message"
+                                );
                             }
-                        }
-
-                        if patched && verbose {
-                            eprintln!(
-                                "[sc_launcher] patched missing jsonrpc field in server message"
-                            );
                         }
 
                         // Check if this is a response to a request we've already handled
@@ -975,32 +996,7 @@ pub fn pump_udp_to_stdout(
 
                         // Log full initialize response for debugging capabilities
                         if verbose {
-                            if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
-                                // Check for capabilities in result (initialize response)
-                                if let Some(result) = json.get("result") {
-                                    if let Some(capabilities) = result.get("capabilities") {
-                                        eprintln!(
-                                            "[sc_launcher] *** SERVER CAPABILITIES ***:\n{}",
-                                            serde_json::to_string_pretty(capabilities)
-                                                .unwrap_or_default()
-                                        );
-                                    }
-                                }
-                                // Log all response ids for debugging
-                                if let Some(id) = json.get("id") {
-                                    eprintln!(
-                                        "[sc_launcher] >> response id={} type={}",
-                                        id,
-                                        if id.is_i64() {
-                                            "int"
-                                        } else if id.is_string() {
-                                            "str"
-                                        } else {
-                                            "?"
-                                        }
-                                    );
-                                }
-                            }
+                            log_response_details(&body);
                         }
 
                         // If the accumulator still contains more bytes, loop to parse them.
