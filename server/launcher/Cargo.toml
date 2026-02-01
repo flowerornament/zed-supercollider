@@ -17,3 +17,11 @@ fslock = "0.2"
 
 [profile.test]
 opt-level = 1
+
+[profile.release]
+lto = true
+strip = true
+
+[lints.clippy]
+all = "warn"
+should_implement_trait = "warn"

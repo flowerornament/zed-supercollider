@@ -15,18 +15,25 @@ Ship a stable Zed extension for SuperCollider with navigation, completion, hover
 - `server/launcher/README.md` - Launcher usage and quark discovery
 - `server/launcher/http-api.md` - HTTP endpoint details
 
-## Building
+## Building & Development
 
-Use the build script to compile everything (grammar, launcher, extension):
+Use `just` for all build and development tasks:
 
 ```bash
-./scripts/build.sh          # Full build (release)
-./scripts/build.sh --debug  # Debug build
+just              # List all commands
+just build        # Full release build
+just build-debug  # Debug build
+just check        # Quality checks (fmt, lint, test)
+just fmt          # Format code
+just lint         # Run clippy
+just lint-strict  # Clippy with warnings as errors
+just test         # Run tests
+just clean        # Clean artifacts
 ```
 
-**Requirements:** `emscripten` (for grammar wasm compilation), `tree-sitter-cli`
+**Requirements:** `just`, `emscripten` (for grammar wasm), `tree-sitter-cli`
 
-The build script:
+**Build steps:**
 1. Compiles tree-sitter grammar to `grammars/supercollider.wasm`
 2. Builds the launcher binary
 3. Builds the Zed extension wasm
@@ -156,7 +163,7 @@ bd sync  # Syncs beads state to/from beads-sync branch
 - `/release` merges verified dev to main **only after verification**
 
 **Before releasing to main:**
-1. Build succeeds: `cargo build --target wasm32-wasip1 --release`
+1. Build succeeds: `just build`
 2. Extension loads in Zed (test with "zed: reload extensions")
 3. Core features work (LSP starts, completion/hover functional)
 
@@ -165,7 +172,7 @@ bd sync  # Syncs beads state to/from beads-sync branch
 **When ending a work session**, complete ALL steps. Work is NOT complete until changes are pushed.
 
 1. **File issues** for remaining work
-2. **Run quality gates** (if code changed) - tests, linters, builds
+2. **Run quality gates** (if code changed) - `just check`
 3. **Update issue status** - close finished, update in-progress
 4. **COMMIT CHANGES**:
    ```bash
