@@ -68,6 +68,124 @@ pub fn next_lsp_request_id() -> u64 {
 }
 
 // ============================================================================
+// LSP Message Parsing Helpers
+// ============================================================================
+
+/// Extract LSP method and JSON body from a raw LSP message.
+/// Returns None if the message cannot be parsed or has no method field.
+fn extract_lsp_info(message: &[u8]) -> Option<(JsonValue, String)> {
+    let body_str = std::str::from_utf8(message).ok()?;
+    let body_start = body_str.find("\r\n\r\n")?;
+    let body = &body_str[body_start + 4..];
+    let json: JsonValue = serde_json::from_str(body).ok()?;
+    let method = json.get("method")?.as_str()?.to_string();
+    Some((json, method))
+}
+
+/// Check if a response should be suppressed (we already responded to this request ID).
+fn should_suppress_response(
+    body: &[u8],
+    responded_ids: &Mutex<HashSet<RequestId>>,
+    verbose: bool,
+) -> bool {
+    let Ok(json) = serde_json::from_slice::<JsonValue>(body) else {
+        return false;
+    };
+    let Some(id) = json.get("id") else {
+        return false;
+    };
+    let Some(request_id) = RequestId::from_json(id) else {
+        return false;
+    };
+    let Ok(set) = responded_ids.lock() else {
+        return false;
+    };
+    if set.contains(&request_id) {
+        if verbose {
+            eprintln!(
+                "[sc_launcher] SUPPRESSING duplicate response for id={} (already responded from launcher)",
+                request_id
+            );
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Context for handling an initialize request.
+struct InitializeContext<'a> {
+    json: &'a JsonValue,
+    message: &'a [u8],
+    responded_ids: &'a Mutex<HashSet<RequestId>>,
+    cached_initialize: &'a Mutex<Option<Vec<u8>>>,
+    stdin_log: &'a mut Option<std::fs::File>,
+    verbose: bool,
+}
+
+/// Handle an LSP initialize request by responding immediately.
+/// Zed expects a fast response; we can't wait for sclang.
+fn handle_initialize_request(ctx: InitializeContext<'_>) {
+    let Some(id) = ctx.json.get("id") else {
+        return;
+    };
+
+    if ctx.verbose {
+        eprintln!("[sc_launcher] INTERCEPTING initialize request - responding immediately");
+    }
+
+    let response = create_initialize_response(id.clone());
+    let response_json =
+        serde_json::to_string(&response).expect("initialize response must serialize");
+    let response_msg = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        response_json.len(),
+        response_json
+    );
+
+    // Write directly to stdout
+    let mut stdout = io::stdout();
+    if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
+        eprintln!("[sc_launcher] failed to write initialize response: {}", e);
+    }
+    if let Err(e) = stdout.flush() {
+        eprintln!("[sc_launcher] failed to flush initialize response: {}", e);
+    }
+    if ctx.verbose {
+        eprintln!("[sc_launcher] sent initialize response to Zed");
+    }
+
+    // Log to file
+    if let Some(ref mut f) = ctx.stdin_log {
+        let _ = writeln!(
+            f,
+            "[{}] >>> RESPONDED TO INITIALIZE: {}",
+            timestamp(),
+            response_json
+        );
+    }
+
+    // Record that we've already responded to this request ID
+    // so we can suppress sclang's duplicate response
+    if let Some(request_id) = RequestId::from_json(id) {
+        if let Ok(mut set) = ctx.responded_ids.lock() {
+            set.insert(request_id.clone());
+            if ctx.verbose {
+                eprintln!(
+                    "[sc_launcher] recorded responded id={} for suppression",
+                    request_id
+                );
+            }
+        }
+    }
+
+    // Cache initialize for re-sending after recompile
+    if let Ok(mut slot) = ctx.cached_initialize.lock() {
+        *slot = Some(ctx.message.to_vec());
+    }
+}
+
+// ============================================================================
 // LSP Message Creation
 // ============================================================================
 
@@ -619,109 +737,48 @@ pub fn pump_stdin_to_udp(
                 }
                 // Log incoming LSP method for debugging and handle initialize specially
                 let is_buffered = !sclang_ready.load(Ordering::SeqCst);
-                let should_forward = true;
 
-                if let Ok(body_str) = std::str::from_utf8(&message) {
-                    if let Some(body_start) = body_str.find("\r\n\r\n") {
-                        let body = &body_str[body_start + 4..];
-                        if let Ok(json) = serde_json::from_str::<JsonValue>(body) {
-                            if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
-                                if verbose {
-                                    eprintln!(
-                                        "[sc_launcher] << LSP request: {} (id={:?}) size={} {}",
-                                        method,
-                                        json.get("id"),
-                                        message.len(),
-                                        if is_buffered { "[BUFFERED]" } else { "" }
-                                    );
-                                }
-                                // Cache last didOpen/didChange so we can replay after sclang is ready.
-                                if method == "textDocument/didOpen" {
-                                    if let Ok(mut slot) = cached_did_open.lock() {
-                                        *slot = Some(message.clone());
-                                    }
-                                } else if method == "textDocument/didChange" {
-                                    if let Ok(mut slot) = cached_did_change.lock() {
-                                        *slot = Some(message.clone());
-                                    }
-                                }
+                if let Some((json, method)) = extract_lsp_info(&message) {
+                    if verbose {
+                        eprintln!(
+                            "[sc_launcher] << LSP request: {} (id={:?}) size={} {}",
+                            method,
+                            json.get("id"),
+                            message.len(),
+                            if is_buffered { "[BUFFERED]" } else { "" }
+                        );
+                    }
 
-                                // Handle initialize request IMMEDIATELY from the launcher
-                                // We can't wait for sclang because Zed expects a fast response
-                                if method == "initialize" {
-                                    if let Some(id) = json.get("id") {
-                                        if verbose {
-                                            eprintln!("[sc_launcher] INTERCEPTING initialize request - responding immediately");
-                                        }
-                                        let response = create_initialize_response(id.clone());
-                                        let response_json = serde_json::to_string(&response)
-                                            .expect("initialize response must serialize");
-                                        let response_msg = format!(
-                                            "Content-Length: {}\r\n\r\n{}",
-                                            response_json.len(),
-                                            response_json
-                                        );
-
-                                        // Write directly to stdout
-                                        let mut stdout = io::stdout();
-                                        if let Err(e) = stdout.write_all(response_msg.as_bytes()) {
-                                            eprintln!(
-                                                "[sc_launcher] failed to write initialize response: {}",
-                                                e
-                                            );
-                                        }
-                                        if let Err(e) = stdout.flush() {
-                                            eprintln!(
-                                                "[sc_launcher] failed to flush initialize response: {}",
-                                                e
-                                            );
-                                        }
-                                        if verbose {
-                                            eprintln!(
-                                                "[sc_launcher] sent initialize response to Zed"
-                                            );
-                                        }
-
-                                        // Log to file
-                                        if let Some(ref mut f) = stdin_log {
-                                            let _ = writeln!(
-                                                f,
-                                                "[{}] >>> RESPONDED TO INITIALIZE: {}",
-                                                timestamp(),
-                                                response_json
-                                            );
-                                        }
-
-                                        // Record that we've already responded to this request ID
-                                        // so we can suppress sclang's duplicate response
-                                        if let Some(request_id) = RequestId::from_json(id) {
-                                            if let Ok(mut set) = responded_ids.lock() {
-                                                set.insert(request_id.clone());
-                                                if verbose {
-                                                    eprintln!(
-                                                        "[sc_launcher] recorded responded id={} for suppression",
-                                                        request_id
-                                                    );
-                                                }
-                                            }
-                                        }
-
-                                        // Still forward to sclang so it can set up its state
-                                        // but we've already responded to Zed
-
-                                        // Cache initialize for re-sending after recompile
-                                        if let Ok(mut slot) = cached_initialize.lock() {
-                                            *slot = Some(message.clone());
-                                        }
-                                    }
-                                }
+                    // Cache last didOpen/didChange so we can replay after sclang is ready
+                    match method.as_str() {
+                        "textDocument/didOpen" => {
+                            if let Ok(mut slot) = cached_did_open.lock() {
+                                *slot = Some(message.clone());
                             }
                         }
+                        "textDocument/didChange" => {
+                            if let Ok(mut slot) = cached_did_change.lock() {
+                                *slot = Some(message.clone());
+                            }
+                        }
+                        "initialize" => {
+                            // Handle initialize request IMMEDIATELY from the launcher
+                            // We can't wait for sclang because Zed expects a fast response
+                            handle_initialize_request(InitializeContext {
+                                json: &json,
+                                message: &message,
+                                responded_ids: &responded_ids,
+                                cached_initialize: &cached_initialize,
+                                stdin_log: &mut stdin_log,
+                                verbose,
+                            });
+                        }
+                        _ => {}
                     }
                 }
 
                 // Queue message for sender thread (forward to sclang)
-                if should_forward && msg_tx.send(message).is_err() {
+                if msg_tx.send(message).is_err() {
                     eprintln!("[sc_launcher] sender thread closed unexpectedly");
                     break;
                 }
@@ -878,27 +935,7 @@ pub fn pump_udp_to_stdout(
 
                         // Check if this is a response to a request we've already handled
                         // (e.g., initialize response from sclang when we already responded)
-                        let mut should_suppress = false;
-                        if let Ok(json) = serde_json::from_slice::<JsonValue>(&body) {
-                            if let Some(id) = json.get("id") {
-                                if let Some(request_id) = RequestId::from_json(id) {
-                                    if let Ok(set) = responded_ids.lock() {
-                                        if set.contains(&request_id) {
-                                            should_suppress = true;
-                                            if verbose {
-                                                eprintln!(
-                                                    "[sc_launcher] SUPPRESSING duplicate response for id={} (already responded from launcher)",
-                                                    request_id
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if should_suppress {
-                            // Skip writing this response to stdout
+                        if should_suppress_response(&body, &responded_ids, verbose) {
                             continue 'outer;
                         }
 

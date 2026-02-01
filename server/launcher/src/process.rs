@@ -142,43 +142,50 @@ pub fn kill_process(pid: u32) {
 // Orphan Process Cleanup
 // ============================================================================
 
+/// Process IDs from a PID file.
+struct PidFileInfo {
+    launcher_pid: u64,
+    sclang_pid: u64,
+}
+
+/// Read and parse the PID file, returning None if file doesn't exist or is malformed.
+fn read_pid_file() -> Option<PidFileInfo> {
+    let path = pid_file_path();
+    let content = std::fs::read_to_string(&path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let launcher_pid = json.get("launcher_pid")?.as_u64()?;
+    let sclang_pid = json.get("sclang_pid")?.as_u64()?;
+    Some(PidFileInfo {
+        launcher_pid,
+        sclang_pid,
+    })
+}
+
 /// Clean up orphaned sclang processes from previous launcher instances.
 /// Called at startup to prevent accumulation of zombie processes.
 pub fn cleanup_orphaned_processes() {
-    let path = pid_file_path();
-
     // Check PID file for stale process
-    if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                let launcher_pid = json.get("launcher_pid").and_then(|v| v.as_u64());
-                let sclang_pid = json.get("sclang_pid").and_then(|v| v.as_u64());
+    if let Some(info) = read_pid_file() {
+        let launcher_alive = is_process_alive(info.launcher_pid as u32);
 
-                if let (Some(launcher_pid), Some(sclang_pid)) = (launcher_pid, sclang_pid) {
-                    // Check if the old launcher is still running
-                    let launcher_alive = is_process_alive(launcher_pid as u32);
-
-                    if !launcher_alive {
-                        // Old launcher is dead - check if sclang is orphaned
-                        if is_process_alive(sclang_pid as u32) {
-                            if verbose_logging_enabled() {
-                                eprintln!(
-                                    "[sc_launcher] found orphaned sclang (pid={}) from dead launcher (pid={}), killing",
-                                    sclang_pid, launcher_pid
-                                );
-                            }
-                            kill_process(sclang_pid as u32);
-                        }
-                        // Remove stale PID file
-                        let _ = std::fs::remove_file(&path);
-                    } else {
-                        eprintln!(
-                            "[sc_launcher] warning: another launcher (pid={}) appears to be running",
-                            launcher_pid
-                        );
-                    }
+        if launcher_alive {
+            eprintln!(
+                "[sc_launcher] warning: another launcher (pid={}) appears to be running",
+                info.launcher_pid
+            );
+        } else {
+            // Old launcher is dead - check if sclang is orphaned
+            if is_process_alive(info.sclang_pid as u32) {
+                if verbose_logging_enabled() {
+                    eprintln!(
+                        "[sc_launcher] found orphaned sclang (pid={}) from dead launcher (pid={}), killing",
+                        info.sclang_pid, info.launcher_pid
+                    );
                 }
+                kill_process(info.sclang_pid as u32);
             }
+            // Remove stale PID file
+            let _ = std::fs::remove_file(pid_file_path());
         }
     }
 
