@@ -18,6 +18,12 @@ pub const UDP_BUFFER_SIZE: usize = 64 * 1024;
 /// Maximum UDP chunk size to match LanguageServer.quark's maxSize
 pub const MAX_UDP_CHUNK_SIZE: usize = 6000;
 
+// Compile-time assertions to validate UDP chunk size is reasonable
+const _: () = {
+    assert!(MAX_UDP_CHUNK_SIZE > 1000);
+    assert!(MAX_UDP_CHUNK_SIZE < 65000);
+};
+
 /// Delay between UDP chunks in microseconds to avoid overwhelming receiver
 pub const UDP_CHUNK_DELAY_US: u64 = 100;
 
@@ -116,9 +122,9 @@ mod tests {
 
     #[test]
     fn test_udp_chunk_size_is_reasonable() {
-        // Should be less than typical MTU (1500 bytes) multiplied by a reasonable factor
-        // but not so large that it causes fragmentation issues
-        assert!(MAX_UDP_CHUNK_SIZE > 1000);
-        assert!(MAX_UDP_CHUNK_SIZE < 65000);
+        // Compile-time assertions in const block above verify bounds (1000 < size < 65000).
+        // This test just confirms the constant is accessible and has a sensible value.
+        let size = MAX_UDP_CHUNK_SIZE;
+        assert!(size > 0, "chunk size must be positive");
     }
 }

@@ -3,13 +3,19 @@
 #![cfg(test)]
 
 #[path = "../src/main.rs"]
+#[allow(dead_code)]
 mod launcher;
 
 use launcher::*;
 use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddrV4, TcpStream, UdpSocket};
+use std::net::{SocketAddrV4, TcpListener, TcpStream, UdpSocket};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration as StdDuration;
+
+/// Mutex to serialize HTTP server tests.
+/// Prevents port reuse race conditions when tests run in parallel.
+static HTTP_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// Attempt to connect; return false if permission denied so callers can early-return.
 fn connect_or_skip(sock: &UdpSocket, addr: SocketAddrV4) -> bool {
@@ -61,11 +67,15 @@ fn shutdown_reaps_running_child() {
 
     // UDP socket to satisfy shutdown request path.
     let Some((_recv, receiver_addr, sock)) = udp_pair() else {
+        let _ = child.kill();
+        let _ = child.wait();
         return;
     };
     if !connect_or_skip(&sock, receiver_addr) {
+        let _ = child.kill();
+        let _ = child.wait();
         return;
-    } // only need a connected socket for send
+    }
 
     let status =
         graceful_shutdown_child(&mut child, &sock, StdDuration::from_millis(50), 42).unwrap();
@@ -112,12 +122,30 @@ fn shutdown_handles_already_exited_child() {
     );
 }
 
-fn pick_free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+/// Pick a free port and return it along with an open listener to prevent reuse.
+/// Caller must drop the listener just before the server binds.
+fn pick_free_port() -> (u16, TcpListener) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    (port, listener)
+}
+
+/// Wait for HTTP server to become ready, with retry logic.
+/// Returns Ok(()) when server accepts connections, Err after timeout.
+fn wait_for_server(port: u16, timeout: StdDuration) -> Result<(), String> {
+    let start = std::time::Instant::now();
+    let mut last_error = None;
+    while start.elapsed() < timeout {
+        match TcpStream::connect(("127.0.0.1", port)) {
+            Ok(_) => return Ok(()),
+            Err(e) => last_error = Some(e),
+        }
+        thread::sleep(StdDuration::from_millis(10));
+    }
+    Err(format!(
+        "Server not ready after {:?}, last error: {:?}",
+        timeout, last_error
+    ))
 }
 
 fn http_request(port: u16, req: &str) -> String {
@@ -135,6 +163,10 @@ fn status_line(body: &str) -> Option<String> {
 
 #[test]
 fn http_health_and_shutdown() {
+    // Serialize HTTP tests to prevent port reuse race conditions
+    // Use unwrap_or_else to recover from poisoned mutex (previous test panic)
+    let _lock = HTTP_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Create UDP socket pair. The receiver (_recv) is needed to get a valid address
     // for connecting the sender, but isn't used in this test. RAII handles cleanup.
@@ -145,12 +177,14 @@ fn http_health_and_shutdown() {
         return;
     }
 
-    let port = pick_free_port();
+    let (port, listener) = pick_free_port();
+    drop(listener); // Release port for server to bind
+    thread::sleep(StdDuration::from_millis(10)); // Give OS time to release port
     let shutdown_clone = shutdown.clone();
     let handle = thread::spawn(move || run_http_server(port, udp_sender, shutdown_clone));
 
-    // Allow server to start
-    thread::sleep(StdDuration::from_millis(50));
+    // Wait for server to be ready with retry logic (longer timeout for CI/loaded systems)
+    wait_for_server(port, StdDuration::from_secs(10)).expect("HTTP server failed to start");
 
     let resp = http_request(
         port,
@@ -170,15 +204,18 @@ fn http_health_and_shutdown() {
         "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
     );
 
-    let result = handle
+    handle
         .join()
         .expect("HTTP server thread panicked")
         .expect("HTTP server returned error");
-    assert_eq!(result, ());
 }
 
 #[test]
 fn http_eval_sends_udp() {
+    // Serialize HTTP tests to prevent port reuse race conditions
+    // Use unwrap_or_else to recover from poisoned mutex (previous test panic)
+    let _lock = HTTP_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Create UDP socket pair. The receiver is used to verify UDP payload delivery.
     let Some((receiver, receiver_addr, udp_sender)) = udp_pair() else {
@@ -188,12 +225,14 @@ fn http_eval_sends_udp() {
         return;
     }
 
-    let port = pick_free_port();
+    let (port, listener) = pick_free_port();
+    drop(listener); // Release port for server to bind
+    thread::sleep(StdDuration::from_millis(10)); // Give OS time to release port
     let shutdown_clone = shutdown.clone();
     let handle = thread::spawn(move || run_http_server(port, udp_sender, shutdown_clone));
 
-    // Allow server to start
-    thread::sleep(StdDuration::from_millis(50));
+    // Wait for server to be ready with retry logic (longer timeout for CI/loaded systems)
+    wait_for_server(port, StdDuration::from_secs(10)).expect("HTTP server failed to start");
 
     let body = "1+1";
     let req = format!(
@@ -229,11 +268,10 @@ fn http_eval_sends_udp() {
         "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
     );
 
-    let result = handle
+    handle
         .join()
         .expect("HTTP server thread panicked")
         .expect("HTTP server returned error");
-    assert_eq!(result, ());
 }
 
 #[test]
