@@ -93,15 +93,13 @@ pub fn allocate_udp_ports() -> Result<Ports> {
 
 /// Release ownership of the child process state.
 pub fn release_child_state(state: &Arc<Mutex<Option<ChildState>>>) {
-    if let Ok(mut slot) = state.lock() {
-        if let Some(child) = slot.take() {
-            child.owned.store(false, Ordering::SeqCst);
-            debug!(
-                "run token {}: released tracked sclang pid {}",
-                child.run_token, child.pid
-            );
-        }
-    }
+    let Ok(mut slot) = state.lock() else { return };
+    let Some(child) = slot.take() else { return };
+    child.owned.store(false, Ordering::SeqCst);
+    debug!(
+        "run token {}: released tracked sclang pid {}",
+        child.run_token, child.pid
+    );
 }
 
 // ============================================================================

@@ -196,19 +196,21 @@ fn handle_initialize_request(ctx: InitializeContext<'_>) {
         );
     }
 
-    // Record that we've already responded to this request ID
-    // so we can suppress sclang's duplicate response
-    if let Some(request_id) = RequestId::from_json(id) {
-        if let Ok(mut set) = ctx.responded_ids.lock() {
-            set.insert(request_id.clone());
-            debug!("recorded responded id={} for suppression", request_id);
-        }
-    }
-
     // Cache initialize for re-sending after recompile
     if let Ok(mut slot) = ctx.cached_initialize.lock() {
         *slot = Some(ctx.message.to_vec());
     }
+
+    // Record that we've already responded to this request ID
+    // so we can suppress sclang's duplicate response
+    let Some(request_id) = RequestId::from_json(id) else {
+        return;
+    };
+    let Ok(mut set) = ctx.responded_ids.lock() else {
+        return;
+    };
+    set.insert(request_id.clone());
+    debug!("recorded responded id={} for suppression", request_id);
 }
 
 // ============================================================================
@@ -512,6 +514,206 @@ fn try_send_cached(cache: &Mutex<Option<Vec<u8>>>, socket: &UdpSocket, msg_name:
 }
 
 // ============================================================================
+// Sender Thread Context and Helpers
+// ============================================================================
+
+/// Shared state for the sender thread.
+struct SenderContext {
+    socket: UdpSocket,
+    ready: Arc<AtomicBool>,
+    shutdown: Arc<AtomicBool>,
+    ready_count: Arc<AtomicU64>,
+    cached_initialize: Arc<Mutex<Option<Vec<u8>>>>,
+    cached_did_open: Arc<Mutex<Option<Vec<u8>>>>,
+    cached_did_change: Arc<Mutex<Option<Vec<u8>>>>,
+}
+
+/// Handle the transition from not-ready to ready state.
+/// Returns true if the transition occurred this call.
+fn handle_ready_transition(
+    ctx: &SenderContext,
+    pending: &mut Vec<Vec<u8>>,
+    start_time: std::time::Instant,
+) -> bool {
+    if !ctx.ready.load(Ordering::SeqCst) {
+        return false;
+    }
+
+    debug!(
+        "sender thread: sclang ready at t={}ms, {} messages buffered",
+        start_time.elapsed().as_millis(),
+        pending.len()
+    );
+
+    // Re-send cached didOpen/didChange after providers are likely registered.
+    if let Some(open_msg) = ctx.cached_did_open.lock().ok().and_then(|m| m.clone()) {
+        debug!("re-sending cached textDocument/didOpen after sclang ready");
+        pending.push(open_msg);
+    }
+    if let Some(change_msg) = ctx.cached_did_change.lock().ok().and_then(|m| m.clone()) {
+        debug!("re-sending cached textDocument/didChange after sclang ready");
+        pending.push(change_msg);
+    }
+
+    flush_pending_messages(pending, &ctx.socket, start_time);
+    true
+}
+
+/// Flush all pending messages to the socket.
+fn flush_pending_messages(
+    pending: &mut Vec<Vec<u8>>,
+    socket: &UdpSocket,
+    start_time: std::time::Instant,
+) {
+    if pending.is_empty() {
+        debug!("sclang ready, no buffered messages to flush");
+        return;
+    }
+
+    debug!(
+        "sclang ready, flushing {} buffered messages at t={}ms",
+        pending.len(),
+        start_time.elapsed().as_millis()
+    );
+
+    for msg in pending.drain(..) {
+        if let Err(err) = send_with_retry(socket, &msg) {
+            error!("failed to send buffered UDP message: {err}");
+        }
+    }
+
+    debug!(
+        "finished flushing buffered messages at t={}ms",
+        start_time.elapsed().as_millis()
+    );
+}
+
+/// Handle recompile detection by checking if ready count increased.
+/// Returns the new last_ready_count value.
+fn handle_recompile_check(ctx: &SenderContext, last_ready_count: u64) -> u64 {
+    let current = ctx.ready_count.load(Ordering::SeqCst);
+    if current > last_ready_count {
+        if last_ready_count > 0 {
+            // This is a recompile (not the initial ready)
+            debug!(
+                "RECOMPILE DETECTED (ready count {} -> {}), re-sending state",
+                last_ready_count, current
+            );
+            try_send_cached(&ctx.cached_initialize, &ctx.socket, "initialize");
+            try_send_cached(&ctx.cached_did_open, &ctx.socket, "didOpen");
+            try_send_cached(&ctx.cached_did_change, &ctx.socket, "didChange");
+        }
+        current
+    } else {
+        last_ready_count
+    }
+}
+
+/// Handle shutdown flush with deadline waiting for ready signal.
+fn handle_shutdown_flush(ctx: &SenderContext, pending: &mut Vec<Vec<u8>>, ready_signaled: bool) {
+    if pending.is_empty() {
+        return;
+    }
+
+    if ready_signaled {
+        // sclang is ready, flush all pending messages
+        for msg in pending.drain(..) {
+            if let Err(e) = send_with_retry(&ctx.socket, &msg) {
+                debug!("send failed during shutdown flush: {}", e);
+            }
+        }
+        return;
+    }
+
+    // sclang not ready - wait briefly for ready signal
+    let deadline = std::time::Instant::now() + millis_to_duration(SHUTDOWN_FLUSH_WAIT_MS);
+    while std::time::Instant::now() < deadline {
+        if ctx.ready.load(Ordering::SeqCst) {
+            for msg in pending.drain(..) {
+                if let Err(e) = send_with_retry(&ctx.socket, &msg) {
+                    debug!("send failed during deadline flush: {}", e);
+                }
+            }
+            return;
+        }
+        std::thread::sleep(millis_to_duration(STARTUP_POLL_MS));
+    }
+
+    if !pending.is_empty() {
+        warn!(
+            "dropping {} messages - sclang never became ready",
+            pending.len()
+        );
+    }
+}
+
+/// Main sender thread loop - buffers messages until sclang is ready, then sends.
+fn run_sender_thread(ctx: SenderContext, msg_rx: mpsc::Receiver<Vec<u8>>) {
+    let start_time = std::time::Instant::now();
+    let mut pending: Vec<Vec<u8>> = Vec::new();
+    let mut ready_signaled = false;
+    let mut last_ready_count: u64 = 0;
+
+    loop {
+        // Check for recompile
+        last_ready_count = handle_recompile_check(&ctx, last_ready_count);
+
+        // Check for ready signal transition
+        if !ready_signaled && handle_ready_transition(&ctx, &mut pending, start_time) {
+            ready_signaled = true;
+        }
+
+        // Try to receive a message (with timeout to allow checking ready flag)
+        match msg_rx.recv_timeout(millis_to_duration(STARTUP_POLL_MS)) {
+            Ok(message) => {
+                if ready_signaled {
+                    if let Err(err) = send_with_retry(&ctx.socket, &message) {
+                        error!("failed to send UDP message: {err}");
+                    }
+                } else {
+                    pending.push(message);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Continue checking ready flag
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // Reader thread closed
+                handle_shutdown_flush(&ctx, &mut pending, ready_signaled);
+                break;
+            }
+        }
+
+        if ctx.shutdown.load(Ordering::SeqCst) {
+            // Drain remaining messages from channel
+            while let Ok(message) = msg_rx.try_recv() {
+                if ready_signaled {
+                    if let Err(e) = send_with_retry(&ctx.socket, &message) {
+                        debug!("send failed during shutdown drain: {}", e);
+                    }
+                } else {
+                    pending.push(message);
+                }
+            }
+            // Final flush
+            if ready_signaled {
+                for msg in pending.drain(..) {
+                    if let Err(e) = send_with_retry(&ctx.socket, &msg) {
+                        debug!("send failed during final flush: {}", e);
+                    }
+                }
+            } else if !pending.is_empty() {
+                warn!(
+                    "dropping {} messages on shutdown (sclang not ready)",
+                    pending.len()
+                );
+            }
+            break;
+        }
+    }
+}
+
+// ============================================================================
 // Stdin → UDP Bridge
 // ============================================================================
 
@@ -551,151 +753,23 @@ pub fn pump_stdin_to_udp(
     // Use a channel to queue messages for sending (allows separate flush thread)
     let (msg_tx, msg_rx) = mpsc::channel::<Vec<u8>>();
 
-    // Spawn a sender thread that buffers until sclang is ready, then sends
-    let sender_socket = socket
-        .try_clone()
-        .context("failed to clone socket for sender")?;
-    let sender_ready = sclang_ready.clone();
-    let sender_shutdown = shutdown.clone();
-    let resend_did_open = cached_did_open.clone();
-    let resend_did_change = cached_did_change.clone();
-    let resend_initialize = cached_initialize.clone();
-    let recompile_counter = ready_count.clone();
+    // Build sender context with all shared state
+    let ctx = SenderContext {
+        socket: socket
+            .try_clone()
+            .context("failed to clone socket for sender")?,
+        ready: sclang_ready.clone(),
+        shutdown: shutdown.clone(),
+        ready_count: ready_count.clone(),
+        cached_initialize: cached_initialize.clone(),
+        cached_did_open: cached_did_open.clone(),
+        cached_did_change: cached_did_change.clone(),
+    };
+
+    // Spawn sender thread
     let sender_thread = thread::Builder::new()
         .name("stdin-sender".into())
-        .spawn(move || {
-            let sender_start = std::time::Instant::now();
-            let mut pending_messages: Vec<Vec<u8>> = Vec::new();
-            let mut ready_signaled = false;
-            let mut last_ready_count: u64 = 0;
-
-            loop {
-                // Check for recompile (ready count increased beyond initial)
-                let current_ready_count = recompile_counter.load(Ordering::SeqCst);
-                if current_ready_count > last_ready_count {
-                    if last_ready_count > 0 {
-                        // This is a recompile (not the initial ready)
-                        debug!(
-                            "RECOMPILE DETECTED (ready count {} -> {}), re-sending state",
-                            last_ready_count, current_ready_count
-                        );
-                        // Re-send cached state
-                        try_send_cached(&resend_initialize, &sender_socket, "initialize");
-                        try_send_cached(&resend_did_open, &sender_socket, "didOpen");
-                        try_send_cached(&resend_did_change, &sender_socket, "didChange");
-                    }
-                    last_ready_count = current_ready_count;
-                }
-
-                // Check for ready signal
-                if !ready_signaled && sender_ready.load(Ordering::SeqCst) {
-                    ready_signaled = true;
-                    debug!(
-                        "sender thread: sclang ready at t={}ms, {} messages buffered",
-                        sender_start.elapsed().as_millis(),
-                        pending_messages.len()
-                    );
-                    // Resend last didOpen/didChange after providers are likely registered.
-                    if let Some(open_msg) = resend_did_open.lock().ok().and_then(|m| m.clone()) {
-                        debug!("re-sending cached textDocument/didOpen after sclang ready");
-                        pending_messages.push(open_msg);
-                    }
-                    if let Some(change_msg) = resend_did_change.lock().ok().and_then(|m| m.clone())
-                    {
-                        debug!("re-sending cached textDocument/didChange after sclang ready");
-                        pending_messages.push(change_msg);
-                    }
-                    if !pending_messages.is_empty() {
-                        debug!(
-                            "sclang ready, flushing {} buffered messages at t={}ms",
-                            pending_messages.len(),
-                            sender_start.elapsed().as_millis()
-                        );
-                        for msg in pending_messages.drain(..) {
-                            if let Err(err) = send_with_retry(&sender_socket, &msg) {
-                                error!("failed to send buffered UDP message: {err}");
-                            }
-                        }
-                        debug!(
-                            "finished flushing buffered messages at t={}ms",
-                            sender_start.elapsed().as_millis()
-                        );
-                    } else {
-                        debug!("sclang ready, no buffered messages to flush");
-                    }
-                }
-
-                // Try to receive a message (with timeout to allow checking ready flag)
-                match msg_rx.recv_timeout(millis_to_duration(STARTUP_POLL_MS)) {
-                    Ok(message) => {
-                        if ready_signaled {
-                            if let Err(err) = send_with_retry(&sender_socket, &message) {
-                                error!("failed to send UDP message: {err}");
-                            }
-                        } else {
-                            pending_messages.push(message);
-                        }
-                    }
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        // Continue checking ready flag
-                    }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        // Reader thread closed - handle shutdown gracefully
-                        if !pending_messages.is_empty() {
-                            if ready_signaled {
-                                // sclang is ready, flush all pending messages
-                                for msg in pending_messages.drain(..) {
-                                    let _ = send_with_retry(&sender_socket, &msg);
-                                }
-                            } else {
-                                // sclang not ready - wait briefly for ready signal, then decide
-                                let deadline = std::time::Instant::now()
-                                    + millis_to_duration(SHUTDOWN_FLUSH_WAIT_MS);
-                                while std::time::Instant::now() < deadline {
-                                    if sender_ready.load(Ordering::SeqCst) {
-                                        for msg in pending_messages.drain(..) {
-                                            let _ = send_with_retry(&sender_socket, &msg);
-                                        }
-                                        break;
-                                    }
-                                    std::thread::sleep(millis_to_duration(STARTUP_POLL_MS));
-                                }
-                                if !pending_messages.is_empty() {
-                                    warn!(
-                                        "dropping {} messages - sclang never became ready",
-                                        pending_messages.len()
-                                    );
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-
-                if sender_shutdown.load(Ordering::SeqCst) {
-                    // Drain any remaining messages from channel before exiting
-                    while let Ok(message) = msg_rx.try_recv() {
-                        if ready_signaled {
-                            let _ = send_with_retry(&sender_socket, &message);
-                        } else {
-                            pending_messages.push(message);
-                        }
-                    }
-                    // Final flush attempt if ready
-                    if ready_signaled && !pending_messages.is_empty() {
-                        for msg in pending_messages.drain(..) {
-                            let _ = send_with_retry(&sender_socket, &msg);
-                        }
-                    } else if !pending_messages.is_empty() {
-                        warn!(
-                            "dropping {} messages on shutdown (sclang not ready)",
-                            pending_messages.len()
-                        );
-                    }
-                    break;
-                }
-            }
-        })?;
+        .spawn(move || run_sender_thread(ctx, msg_rx))?;
 
     if let Some(ref mut f) = stdin_log {
         let _ = writeln!(f, "[{}] stdin reader: starting main loop", timestamp());
