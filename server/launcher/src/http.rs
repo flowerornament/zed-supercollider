@@ -16,7 +16,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tiny_http::{Header, Method, Response, Server};
 
-use crate::{create_execute_command_request, next_lsp_request_id, verbose_logging_enabled};
+use crate::bridge::{create_execute_command_request, next_lsp_request_id};
+use crate::logging::verbose_logging_enabled;
 
 // ============================================================================
 // Response Helpers

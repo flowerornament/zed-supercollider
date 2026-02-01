@@ -1,12 +1,10 @@
-// Integration-style tests for sc_launcher. We include the main module so we can
-// exercise internal functions without turning the crate into a full library target.
+// Integration-style tests for sc_launcher library.
 #![cfg(test)]
 
-#[path = "../src/main.rs"]
-#[allow(dead_code)]
-mod launcher;
-
-use launcher::*;
+use sc_launcher::{
+    graceful_shutdown_child, remove_pid_file, run_http_server, run_lsp_bridge, write_pid_file,
+    Args, Mode, IS_RUNNING,
+};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::sync::Mutex;
