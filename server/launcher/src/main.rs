@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, ValueEnum};
+use fslock::LockFile;
 use lsp_types::{
     CodeActionKind, CodeActionProviderCapability, CodeLensOptions, CompletionOptions,
     CompletionOptionsCompletionItem, DeclarationCapability, ExecuteCommandOptions,
@@ -60,7 +61,7 @@ fn timestamp() -> String {
         )
     };
     let prefix = std::str::from_utf8(&buf[..len as usize]).unwrap_or("1970-01-01 00:00:00");
-    format!("{}.{}", prefix, format!("{millis:03}"))
+    format!("{prefix}.{millis:03}")
 }
 
 /// SuperCollider Language Server launcher
@@ -132,7 +133,7 @@ fn log_dir() -> std::path::PathBuf {
     std::env::var_os("SC_TMP_DIR")
         .or_else(|| std::env::var_os("TMPDIR"))
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
 }
 
 fn debug_file_logs_enabled() -> bool {
@@ -174,7 +175,10 @@ pub fn remove_pid_file() {
     let path = pid_file_path();
     if path.exists() {
         if let Err(e) = std::fs::remove_file(&path) {
-            eprintln!("[sc_launcher] warning: failed to remove PID file {:?}: {}", path, e);
+            eprintln!(
+                "[sc_launcher] warning: failed to remove PID file {:?}: {}",
+                path, e
+            );
         } else if verbose_logging_enabled() {
             eprintln!("[sc_launcher] removed PID file at {:?}", path);
         }
@@ -221,9 +225,12 @@ pub fn cleanup_orphaned_processes() {
         }
     }
 
-    // Also scan for any orphaned sclang processes (PPID=1) with our command signature
+    // Also scan for any orphaned sclang/scsynth processes (PPID=1)
     #[cfg(unix)]
-    cleanup_orphaned_sclang_by_ppid();
+    {
+        cleanup_orphaned_sclang_by_ppid();
+        cleanup_orphaned_scsynth_by_ppid();
+    }
 }
 
 /// Check if a process is alive
@@ -252,7 +259,10 @@ fn kill_process(pid: u32) {
 
         // Check if still alive, use SIGKILL if needed
         if is_process_alive(pid) {
-            eprintln!("[sc_launcher] sclang {} didn't respond to SIGTERM, using SIGKILL", pid);
+            eprintln!(
+                "[sc_launcher] sclang {} didn't respond to SIGTERM, using SIGKILL",
+                pid
+            );
             unsafe {
                 libc::kill(pid as i32, libc::SIGKILL);
             }
@@ -260,15 +270,13 @@ fn kill_process(pid: u32) {
     }
 }
 
-/// Scan for orphaned sclang processes (PPID=1) and kill them
+/// Scan for orphaned processes by name with PPID=1 and kill them
 #[cfg(unix)]
-fn cleanup_orphaned_sclang_by_ppid() {
+fn cleanup_orphaned_by_ppid(process_name: &str) {
     use std::process::Command;
 
-    // Use ps to find sclang processes with PPID=1 (orphaned, reparented to init)
-    let output = Command::new("ps")
-        .args(["-eo", "pid,ppid,comm"])
-        .output();
+    // Use ps to find processes with PPID=1 (orphaned, reparented to init)
+    let output = Command::new("ps").args(["-eo", "pid,ppid,comm"]).output();
 
     if let Ok(output) = output {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -278,12 +286,12 @@ fn cleanup_orphaned_sclang_by_ppid() {
             if parts.len() >= 3 {
                 if let (Ok(pid), Ok(ppid)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
                     let comm = parts[2..].join(" ");
-                    // Check if it's an orphaned sclang (PPID=1 means parent died)
-                    if ppid == 1 && comm.contains("sclang") {
+                    // Check if it's an orphaned process (PPID=1 means parent died)
+                    if ppid == 1 && comm.contains(process_name) {
                         if verbose_logging_enabled() {
                             eprintln!(
-                                "[sc_launcher] found orphaned sclang process (pid={}, ppid=1), killing",
-                                pid
+                                "[sc_launcher] found orphaned {} process (pid={}, ppid=1), killing",
+                                process_name, pid
                             );
                         }
                         kill_process(pid);
@@ -292,6 +300,18 @@ fn cleanup_orphaned_sclang_by_ppid() {
             }
         }
     }
+}
+
+/// Scan for orphaned sclang processes (PPID=1) and kill them
+#[cfg(unix)]
+fn cleanup_orphaned_sclang_by_ppid() {
+    cleanup_orphaned_by_ppid("sclang");
+}
+
+/// Scan for orphaned scsynth processes (PPID=1) and kill them
+#[cfg(unix)]
+fn cleanup_orphaned_scsynth_by_ppid() {
+    cleanup_orphaned_by_ppid("scsynth");
 }
 
 /// Construct an sclang command, forcing the appropriate architecture slice on macOS.
@@ -331,7 +351,10 @@ fn detect_sclang(args: &Args) -> Result<String> {
         let default_mac = "/Applications/SuperCollider.app/Contents/MacOS/sclang";
         if Path::new(default_mac).exists() {
             if verbose_logging_enabled() {
-                eprintln!("[sc_launcher] using default macOS sclang at {}", default_mac);
+                eprintln!(
+                    "[sc_launcher] using default macOS sclang at {}",
+                    default_mac
+                );
             }
             return Ok(default_mac.to_string());
         }
@@ -352,11 +375,7 @@ fn main() -> Result<()> {
             .open(&log_path);
         if let Ok(mut f) = startup_log {
             use std::io::Write;
-            let _ = writeln!(
-                f,
-                "\n[{}] ======== MAIN STARTED ========",
-                timestamp()
-            );
+            let _ = writeln!(f, "\n[{}] ======== MAIN STARTED ========", timestamp());
             let _ = writeln!(
                 f,
                 "[{}] PID={} args={:?}",
@@ -410,7 +429,7 @@ fn main() -> Result<()> {
                 },
                 "note": "use --mode lsp to start the LanguageServer bridge"
             });
-            println!("{}", probe.to_string());
+            println!("{}", probe);
             Ok(())
         }
         Mode::Lsp => run_lsp_bridge(&sclang, &args),
@@ -423,6 +442,21 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     // Clean up any orphaned sclang processes from previous launcher instances
     cleanup_orphaned_processes();
+
+    // Acquire exclusive lock to ensure single instance.
+    // This prevents port conflicts when Zed restarts quickly.
+    let lock_path = log_dir().join("sc_launcher.lock");
+    let mut lock = LockFile::open(&lock_path)
+        .map_err(|e| anyhow!("failed to open lock file {:?}: {}", lock_path, e))?;
+    if !lock.try_lock().unwrap_or(false) {
+        if verbose {
+            eprintln!("[sc_launcher] waiting for previous instance to release lock...");
+        }
+        // Block until lock is available (previous instance exiting)
+        lock.lock()
+            .map_err(|e| anyhow!("failed to acquire lock: {}", e))?;
+    }
+    // Lock is held for process lifetime - auto-releases on exit
 
     let run_token = RUN_TOKEN.fetch_add(1, Ordering::SeqCst);
     if IS_RUNNING.swap(true, Ordering::SeqCst) {
@@ -477,7 +511,10 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     if let Some(vendor_path) = vendored_path {
         if verbose {
-            eprintln!("[sc_launcher] including vendored LanguageServer.quark at {}", vendor_path);
+            eprintln!(
+                "[sc_launcher] including vendored LanguageServer.quark at {}",
+                vendor_path
+            );
         }
         command.arg("--include-path").arg(&vendor_path);
 
@@ -546,10 +583,14 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
     let (ready_tx, ready_rx) = mpsc::channel();
     // Track ready count for recompile detection (increments each time LSP READY is seen)
     let ready_count: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
-    let stdout_handle = child
-        .stdout
-        .take()
-        .map(|stream| log_child_stream("sclang stdout", stream, Some(ready_tx.clone()), Some(ready_count.clone())));
+    let stdout_handle = child.stdout.take().map(|stream| {
+        log_child_stream(
+            "sclang stdout",
+            stream,
+            Some(ready_tx.clone()),
+            Some(ready_count.clone()),
+        )
+    });
     let stderr_handle = child
         .stderr
         .take()
@@ -600,7 +641,16 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         }
         let handle = thread::Builder::new()
             .name("stdin->udp".into())
-            .spawn(move || pump_stdin_to_udp(udp, shutdown, done_tx, ready_flag, responded, recompile_count))
+            .spawn(move || {
+                pump_stdin_to_udp(
+                    udp,
+                    shutdown,
+                    done_tx,
+                    ready_flag,
+                    responded,
+                    recompile_count,
+                )
+            })
             .context("failed to spawn stdin->udp bridge thread")?;
         if verbose {
             eprintln!("[sc_launcher] stdin->udp thread spawned successfully");
@@ -687,7 +737,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
                 GRACEFUL_SHUTDOWN_TIMEOUT,
                 run_token,
             )
-                .context("failed to shut down sclang after stdin closed")?;
+            .context("failed to shut down sclang after stdin closed")?;
 
             // AFTER sclang has exited, signal threads to stop
             // This ensures the sender thread can deliver final messages while sclang is alive
@@ -797,10 +847,7 @@ where
             };
 
             if post_file.is_some() && label == "sclang stdout" && verbose {
-                eprintln!(
-                    "[sc_launcher] sclang output -> {}",
-                    post_log_path.display()
-                );
+                eprintln!("[sc_launcher] sclang output -> {}", post_log_path.display());
             } else if log_to_file && post_file.is_none() {
                 eprintln!(
                     "[sc_launcher] warning: failed to open post log at {}",
@@ -841,7 +888,11 @@ where
                         if let Some(ref counter) = ready_count {
                             let old_count = counter.fetch_add(1, Ordering::SeqCst);
                             if verbose {
-                                eprintln!("[sc_launcher] LSP READY count: {} -> {}", old_count, old_count + 1);
+                                eprintln!(
+                                    "[sc_launcher] LSP READY count: {} -> {}",
+                                    old_count,
+                                    old_count + 1
+                                );
                             }
                         }
                     }
@@ -920,15 +971,17 @@ fn allocate_udp_ports() -> Result<Ports> {
 /// This is sent immediately by the launcher so Zed doesn't timeout waiting for sclang.
 fn create_initialize_response(id: JsonValue) -> JsonValue {
     let capabilities = ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
-            open_close: Some(true),
-            change: Some(TextDocumentSyncKind::INCREMENTAL),
-            will_save: None,
-            will_save_wait_until: None,
-            save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
-                include_text: None,
-            })),
-        })),
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::INCREMENTAL),
+                will_save: None,
+                will_save_wait_until: None,
+                save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
+                    include_text: None,
+                })),
+            },
+        )),
         completion_provider: Some(CompletionOptions {
             resolve_provider: Some(false),
             trigger_characters: Some(vec![".".into(), "(".into(), "~".into()]),
@@ -1001,11 +1054,7 @@ fn create_initialize_response(id: JsonValue) -> JsonValue {
 }
 
 /// Create a typed LSP request with automatic JSON-RPC envelope
-fn create_lsp_request<P: serde::Serialize>(
-    id: u64,
-    method: &str,
-    params: P,
-) -> serde_json::Value {
+fn create_lsp_request<P: serde::Serialize>(id: u64, method: &str, params: P) -> serde_json::Value {
     serde_json::json!({
         "jsonrpc": JSONRPC_VERSION,
         "id": id,
@@ -1015,10 +1064,7 @@ fn create_lsp_request<P: serde::Serialize>(
 }
 
 /// Create a typed LSP notification (no id field)
-fn create_lsp_notification<P: serde::Serialize>(
-    method: &str,
-    params: P,
-) -> serde_json::Value {
+fn create_lsp_notification<P: serde::Serialize>(method: &str, params: P) -> serde_json::Value {
     serde_json::json!({
         "jsonrpc": JSONRPC_VERSION,
         "method": method,
@@ -1177,11 +1223,7 @@ fn pump_stdin_to_udp(
     };
     if let Some(ref mut f) = stdin_log {
         use std::io::Write;
-        let _ = writeln!(
-            f,
-            "\n[{}] === pump_stdin_to_udp ENTERED ===",
-            timestamp()
-        );
+        let _ = writeln!(f, "\n[{}] === pump_stdin_to_udp ENTERED ===", timestamp());
     }
 
     let stdin = io::stdin();
@@ -1289,10 +1331,8 @@ fn pump_stdin_to_udp(
                                 sender_start.elapsed().as_millis()
                             );
                         }
-                    } else {
-                        if verbose {
-                            eprintln!("[sc_launcher] sclang ready, no buffered messages to flush");
-                        }
+                    } else if verbose {
+                        eprintln!("[sc_launcher] sclang ready, no buffered messages to flush");
                     }
                 }
 
@@ -1370,11 +1410,7 @@ fn pump_stdin_to_udp(
 
     if let Some(ref mut f) = stdin_log {
         use std::io::Write;
-        let _ = writeln!(
-            f,
-            "[{}] stdin reader: starting main loop",
-            timestamp()
-        );
+        let _ = writeln!(f, "[{}] stdin reader: starting main loop", timestamp());
     }
     let mut msg_count = 0u64;
 
@@ -1456,7 +1492,9 @@ fn pump_stdin_to_udp(
                                             eprintln!("[sc_launcher] failed to flush initialize response: {}", e);
                                         }
                                         if verbose {
-                                            eprintln!("[sc_launcher] sent initialize response to Zed");
+                                            eprintln!(
+                                                "[sc_launcher] sent initialize response to Zed"
+                                            );
                                         }
 
                                         // Log to file
@@ -1496,11 +1534,9 @@ fn pump_stdin_to_udp(
                 }
 
                 // Queue message for sender thread (forward to sclang)
-                if should_forward {
-                    if msg_tx.send(message).is_err() {
-                        eprintln!("[sc_launcher] sender thread closed unexpectedly");
-                        break;
-                    }
+                if should_forward && msg_tx.send(message).is_err() {
+                    eprintln!("[sc_launcher] sender thread closed unexpectedly");
+                    break;
                 }
             }
             Ok(None) => {
@@ -1641,12 +1677,10 @@ fn pump_udp_to_stdout(
                             }
                         }
 
-                        if patched {
-                            if verbose {
-                                eprintln!(
-                                    "[sc_launcher] patched missing jsonrpc field in server message"
-                                );
-                            }
+                        if patched && verbose {
+                            eprintln!(
+                                "[sc_launcher] patched missing jsonrpc field in server message"
+                            );
                         }
 
                         // Check if this is a response to a request we've already handled
@@ -1793,19 +1827,16 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
             match socket.send(message) {
                 Ok(bytes) if bytes == message.len() => return Ok(()),
                 Ok(_) => {
-                    return Err(io::Error::new(
-                        ErrorKind::Other,
+                    return Err(io::Error::other(
                         "partial UDP send (wrote fewer bytes than expected)",
                     ))
                 }
                 Err(err) if err.kind() == ErrorKind::ConnectionRefused => {
-                    if verbose {
-                        if attempts == 0 || attempts % 40 == 0 {
-                            eprintln!(
+                    if verbose && (attempts == 0 || attempts.is_multiple_of(40)) {
+                        eprintln!(
                                 "[sc_launcher] Connection refused sending to sclang (attempt {}): {err}",
                                 attempts + 1
                             );
-                        }
                     }
                     if attempts >= max_attempts {
                         return Err(io::Error::new(
@@ -1831,7 +1862,7 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
         eprintln!(
             "[sc_launcher] chunking large message ({} bytes) into {} chunks",
             message.len(),
-            (message.len() + MAX_UDP_CHUNK_SIZE - 1) / MAX_UDP_CHUNK_SIZE
+            message.len().div_ceil(MAX_UDP_CHUNK_SIZE)
         );
     }
 
@@ -1843,20 +1874,13 @@ fn send_with_retry(socket: &UdpSocket, message: &[u8]) -> io::Result<()> {
         loop {
             match socket.send(chunk) {
                 Ok(bytes) if bytes == chunk.len() => break,
-                Ok(_) => {
-                    return Err(io::Error::new(
-                        ErrorKind::Other,
-                        "partial UDP send on chunk",
-                    ))
-                }
+                Ok(_) => return Err(io::Error::other("partial UDP send on chunk")),
                 Err(err) if err.kind() == ErrorKind::ConnectionRefused => {
-                    if verbose {
-                        if attempts == 0 || attempts % 40 == 0 {
-                            eprintln!(
-                                "[sc_launcher] Connection refused sending chunk (attempt {}): {err}",
-                                attempts + 1
-                            );
-                        }
+                    if verbose && (attempts == 0 || attempts.is_multiple_of(40)) {
+                        eprintln!(
+                            "[sc_launcher] Connection refused sending chunk (attempt {}): {err}",
+                            attempts + 1
+                        );
                     }
                     if attempts >= max_attempts {
                         return Err(io::Error::new(

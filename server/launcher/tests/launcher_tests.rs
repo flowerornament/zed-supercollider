@@ -165,7 +165,10 @@ fn http_health_and_shutdown() {
 
     // Signal shutdown and send a final request to unblock the server
     shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
-    let _ = http_request(port, "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+    let _ = http_request(
+        port,
+        "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    );
 
     let result = handle
         .join()
@@ -221,7 +224,10 @@ fn http_eval_sends_udp() {
 
     // Signal shutdown and send a final request to unblock the server
     shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
-    let _ = http_request(port, "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+    let _ = http_request(
+        port,
+        "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    );
 
     let result = handle
         .join()
@@ -268,5 +274,8 @@ fn pid_file_write_and_remove() {
 
     // Remove PID file
     remove_pid_file();
-    assert!(!pid_path.exists(), "PID file should be removed after cleanup");
+    assert!(
+        !pid_path.exists(),
+        "PID file should be removed after cleanup"
+    );
 }

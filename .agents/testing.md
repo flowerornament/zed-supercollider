@@ -1,5 +1,6 @@
 title: "Testing Guide"
 created: 2026-01-12
+updated: 2026-01-12
 purpose: "Comprehensive testing matrix covering user workflows, agent verification, and UX comparison with SC IDE"
 ---
 
