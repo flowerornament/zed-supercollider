@@ -7,15 +7,17 @@
 //! - POST /convert-schelp - Convert .schelp to markdown
 
 use anyhow::{anyhow, Result};
+use log::{debug, error};
+use socket2::{Domain, Protocol, Socket, Type};
 use std::io;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, TcpListener, UdpSocket};
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tiny_http::{Header, Method, Response, Server};
 
-use crate::{create_execute_command_request, next_lsp_request_id, verbose_logging_enabled};
+use crate::bridge::{create_execute_command_request, next_lsp_request_id};
 
 // ============================================================================
 // Response Helpers
@@ -35,10 +37,12 @@ pub fn cors_headers() -> Vec<Header> {
 
 /// Build a JSON response with the given status code.
 pub fn json_response(body: &str, status: u16) -> Response<std::io::Cursor<Vec<u8>>> {
-    Response::from_string(body).with_status_code(status).with_header(
-        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-            .expect("valid ASCII header"),
-    )
+    Response::from_string(body)
+        .with_status_code(status)
+        .with_header(
+            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                .expect("valid ASCII header"),
+        )
 }
 
 /// Build a JSON response with CORS headers.
@@ -69,8 +73,7 @@ fn cors_preflight_response() -> Response<std::io::Cursor<Vec<u8>>> {
 
 /// Send an LSP payload to sclang via UDP.
 pub fn send_lsp_payload(udp_socket: &UdpSocket, payload: &serde_json::Value) -> io::Result<()> {
-    let lsp_json =
-        serde_json::to_string(payload).map_err(io::Error::other)?;
+    let lsp_json = serde_json::to_string(payload).map_err(io::Error::other)?;
     let lsp_message = format!("Content-Length: {}\r\n\r\n{}", lsp_json.len(), lsp_json);
 
     udp_socket.send(lsp_message.as_bytes()).map(|_| ())
@@ -82,30 +85,33 @@ pub fn send_lsp_payload(udp_socket: &UdpSocket, payload: &serde_json::Value) -> 
 
 /// Run the HTTP server for eval requests.
 /// Accepts POST /eval with code in the body, sends workspace/executeCommand to sclang.
-pub fn run_http_server(
-    port: u16,
-    udp_socket: UdpSocket,
-    shutdown: Arc<AtomicBool>,
-) -> Result<()> {
-    let verbose = verbose_logging_enabled();
-    let addr = format!("127.0.0.1:{}", port);
-    let server = match Server::http(&addr) {
-        Ok(s) => s,
-        Err(err) => {
-            eprintln!(
-                "[sc_launcher] failed to start HTTP server on {}: {}",
-                addr, err
-            );
-            return Err(anyhow!("HTTP server bind failed: {}", err));
-        }
-    };
+pub fn run_http_server(port: u16, udp_socket: UdpSocket, shutdown: Arc<AtomicBool>) -> Result<()> {
+    let addr: SocketAddr = format!("127.0.0.1:{}", port)
+        .parse()
+        .map_err(|e| anyhow!("invalid address: {}", e))?;
 
-    if verbose {
-        eprintln!(
-            "[sc_launcher] HTTP eval server listening on http://{}",
-            addr
-        );
-    }
+    // Create socket with SO_REUSEADDR to allow quick rebinding after restart.
+    // This prevents "address already in use" errors when Zed restarts quickly.
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+        .map_err(|e| anyhow!("failed to create socket: {}", e))?;
+    socket
+        .set_reuse_address(true)
+        .map_err(|e| anyhow!("failed to set SO_REUSEADDR: {}", e))?;
+    socket
+        .bind(&addr.into())
+        .map_err(|e| anyhow!("failed to bind socket to {}: {}", addr, e))?;
+    socket
+        .listen(128)
+        .map_err(|e| anyhow!("failed to listen on socket: {}", e))?;
+
+    // Convert to std TcpListener, then create tiny_http Server
+    let listener: TcpListener = socket.into();
+    let server = Server::from_listener(listener, None).map_err(|e| {
+        error!("failed to start HTTP server on {}: {}", addr, e);
+        anyhow!("HTTP server bind failed: {}", e)
+    })?;
+
+    debug!("HTTP eval server listening on http://{}", addr);
 
     // Set a timeout so we can check shutdown flag periodically
     server
@@ -114,13 +120,11 @@ pub fn run_http_server(
         .for_each(|mut request| {
             let response = handle_http_request(&mut request, &udp_socket);
             if let Err(err) = request.respond(response) {
-                eprintln!("[sc_launcher] failed to send HTTP response: {}", err);
+                error!("failed to send HTTP response: {}", err);
             }
         });
 
-    if verbose {
-        eprintln!("[sc_launcher] HTTP server shutting down");
-    }
+    debug!("HTTP server shutting down");
     Ok(())
 }
 
@@ -186,13 +190,11 @@ fn handle_eval(
 
     match send_lsp_payload(udp_socket, &lsp_request) {
         Ok(_) => {
-            if verbose_logging_enabled() {
-                eprintln!(
-                    "[sc_launcher] HTTP /eval sent {} bytes to sclang (id={})",
-                    body.len(),
-                    request_id
-                );
-            }
+            debug!(
+                "HTTP /eval sent {} bytes to sclang (id={})",
+                body.len(),
+                request_id
+            );
             // We don't wait for the LSP response - fire and forget for now
             // The result will be posted to sclang's post window
             let response_body = format!(
@@ -203,7 +205,7 @@ fn handle_eval(
             json_response_with_cors(&response_body, 202)
         }
         Err(err) => {
-            eprintln!("[sc_launcher] HTTP /eval failed to send UDP: {}", err);
+            error!("HTTP /eval failed to send UDP: {}", err);
             error_response(&format!("failed to send to sclang: {}", err), 502)
         }
     }
@@ -221,14 +223,12 @@ fn send_command(
 
     match send_lsp_payload(udp_socket, &lsp_request) {
         Ok(_) => {
-            if verbose_logging_enabled() {
-                eprintln!(
-                    "[sc_launcher] HTTP /{} sent command {} (id={})",
-                    command.split('.').next_back().unwrap_or(command),
-                    command,
-                    request_id
-                );
-            }
+            debug!(
+                "HTTP /{} sent command {} (id={})",
+                command.split('.').next_back().unwrap_or(command),
+                command,
+                request_id
+            );
             let response_body = format!(
                 r#"{{"status":"sent","command":"{}","request_id":{}}}"#,
                 command, request_id
@@ -236,8 +236,8 @@ fn send_command(
             json_response_with_cors(&response_body, 202)
         }
         Err(err) => {
-            eprintln!(
-                "[sc_launcher] HTTP /{} failed to send UDP: {}",
+            error!(
+                "HTTP /{} failed to send UDP: {}",
                 command.split('.').next_back().unwrap_or(command),
                 err
             );
@@ -260,9 +260,7 @@ fn not_found_response() -> Response<std::io::Cursor<Vec<u8>>> {
 
 /// Handle POST /convert-schelp endpoint.
 /// Converts a .schelp file to markdown using pandoc with our custom reader.
-fn handle_convert_schelp(
-    request: &mut tiny_http::Request,
-) -> Response<std::io::Cursor<Vec<u8>>> {
+fn handle_convert_schelp(request: &mut tiny_http::Request) -> Response<std::io::Cursor<Vec<u8>>> {
     // Read JSON body
     let mut body = String::new();
     if let Err(err) = request.as_reader().read_to_string(&mut body) {
@@ -318,9 +316,7 @@ fn handle_convert_schelp(
                 error_response(&format!("pandoc failed: {}", stderr), 500)
             }
         }
-        Err(err) => {
-            error_response(&format!("failed to run pandoc: {}", err), 500)
-        }
+        Err(err) => error_response(&format!("failed to run pandoc: {}", err), 500),
     }
 }
 

@@ -1,6 +1,6 @@
 title: "Code Conventions & Patterns"
 created: 2026-01-05
-updated: 2026-01-07
+updated: 2026-01-12
 purpose: "Only the rules that keep the SuperCollider/Rust/Zed code safe and predictable"
 ---
 

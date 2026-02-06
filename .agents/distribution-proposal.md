@@ -1,6 +1,6 @@
 title: "Distribution Proposal – Zed SuperCollider"
 created: 2026-01-07
-updated: 2026-01-07
+updated: 2026-01-11
 priority: proposal
 status: draft
 owners: [team]

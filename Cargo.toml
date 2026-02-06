@@ -3,6 +3,10 @@ name = "zed_supercollider"
 version = "0.1.0"
 edition = "2021"
 
+[lints.clippy]
+all = "warn"
+should_implement_trait = "warn"
+
 [lib]
 crate-type = ["cdylib"]
 path = "src/lib.rs"

@@ -1,6 +1,6 @@
 title: "Architecture"
 created: 2026-01-05
-updated: 2026-01-06
+updated: 2026-01-11
 purpose: "Concise mental model and extension points for the dual-channel SuperCollider Zed extension"
 ---
 
