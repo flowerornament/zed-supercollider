@@ -6,9 +6,9 @@ Build the zed-supercollider extension.
 
 ## Steps
 
-1. Run the build script:
+1. Run the build:
    ```bash
-   ./scripts/build.sh
+   just build
    ```
 
 2. Check for errors in output. Common issues:

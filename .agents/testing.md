@@ -24,7 +24,7 @@ cd grammars/supercollider && tree-sitter generate && tree-sitter parse ../../tes
 tree-sitter query ../../languages/SuperCollider/runnables.scm ../../tests/test_runnables.scd
 
 # Build everything
-./scripts/build.sh
+just build
 
 # Check running processes
 ps aux | grep -E '(sclang|scsynth|sc_launcher)' | grep -v grep
@@ -288,7 +288,7 @@ Use this for automated verification:
     tree-sitter query languages/SuperCollider/runnables.scm tests/test_runnables.scd
 
 [ ] Extension builds without errors
-    ./scripts/build.sh
+    just build
 
 [ ] Launcher starts and responds
     curl http://127.0.0.1:57130/health

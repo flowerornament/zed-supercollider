@@ -382,7 +382,7 @@ def main():
 
     if not launcher_path.exists():
         log_fail(f"Launcher not found at {launcher_path}")
-        log_info("Run ./scripts/build.sh first")
+        log_info("Run 'just build' first")
         sys.exit(1)
 
     test_file = project_root / "tests" / "eval_test.scd"

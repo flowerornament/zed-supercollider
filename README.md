@@ -18,6 +18,9 @@ Zed extension for [SuperCollider](https://supercollider.github.io/) with LSP sup
 - **Zed** editor ([download](https://zed.dev/))
 - **Rust** via [rustup](https://rustup.rs/)
   - Homebrew Rust won't work — Zed compiles extensions to WebAssembly, which requires the `wasm32-wasip1` target that only rustup can easily provide
+- **[just](https://github.com/casey/just)** command runner (`brew install just`)
+- **emscripten** for grammar compilation (`brew install emscripten`)
+- **tree-sitter-cli** (`npm install -g tree-sitter-cli` or `cargo install tree-sitter-cli`)
 
 ## Installation
 
@@ -30,21 +33,15 @@ git clone https://github.com/flowerornament/zed-supercollider.git
 cd zed-supercollider
 ```
 
-### 2. Install the Rust WASM target
+### 2. Build everything
 
 ```bash
-rustup target add wasm32-wasip1
+just build
 ```
 
-### 3. Build the launcher
+This compiles the tree-sitter grammar, builds the launcher binary, builds the extension WASM, and runs tests. It will automatically install the `wasm32-wasip1` Rust target if needed.
 
-```bash
-cd server/launcher
-cargo build --release
-cd ../..
-```
-
-### 4. Load the extension in Zed
+### 3. Load the extension in Zed
 
 1. Open Zed
 2. Open the command palette (`Cmd+Shift+P`)
@@ -53,7 +50,7 @@ cd ../..
 
 The extension will compile and load. You'll see "SuperCollider" in your extensions list.
 
-### 5. Configure Zed settings
+### 4. Configure Zed settings
 
 Open Zed settings (`Cmd+,`) and add:
 
@@ -72,7 +69,7 @@ Open Zed settings (`Cmd+,`) and add:
 
 Replace `/absolute/path/to/zed-supercollider` with your actual clone location.
 
-### 6. Verify installation
+### 5. Verify installation
 
 1. Open any `.sc` or `.scd` file in the cloned repo (e.g., `examples/` if present, or create a test file)
 2. Run `SC: Check Setup` from tasks (`Cmd+Shift+R` → search "check")
