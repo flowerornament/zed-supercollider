@@ -83,33 +83,6 @@ fn extract_lsp_info(message: &[u8]) -> Option<(JsonValue, String)> {
     Some((json, method))
 }
 
-/// Log verbose details about an LSP response (capabilities, response IDs).
-fn log_response_details(body: &[u8]) {
-    let Ok(json) = serde_json::from_slice::<JsonValue>(body) else {
-        return;
-    };
-
-    // Check for capabilities in result (initialize response)
-    if let Some(capabilities) = json.get("result").and_then(|r| r.get("capabilities")) {
-        debug!(
-            "*** SERVER CAPABILITIES ***:\n{}",
-            serde_json::to_string_pretty(capabilities).unwrap_or_default()
-        );
-    }
-
-    // Log all response ids for debugging
-    if let Some(id) = json.get("id") {
-        let id_type = if id.is_i64() {
-            "int"
-        } else if id.is_string() {
-            "str"
-        } else {
-            "?"
-        };
-        debug!(">> response id={} type={}", id, id_type);
-    }
-}
-
 /// Ensure JSON-RPC response has the required "jsonrpc": "2.0" field.
 /// Returns the patched body if modification was needed, None otherwise.
 fn patch_jsonrpc_version(body: &[u8]) -> Option<Vec<u8>> {
@@ -566,12 +539,11 @@ fn flush_pending_messages(
     start_time: std::time::Instant,
 ) {
     if pending.is_empty() {
-        debug!("sclang ready, no buffered messages to flush");
         return;
     }
 
     debug!(
-        "sclang ready, flushing {} buffered messages at t={}ms",
+        "flushing {} buffered messages at t={}ms",
         pending.len(),
         start_time.elapsed().as_millis()
     );
@@ -581,11 +553,6 @@ fn flush_pending_messages(
             error!("failed to send buffered UDP message: {err}");
         }
     }
-
-    debug!(
-        "finished flushing buffered messages at t={}ms",
-        start_time.elapsed().as_millis()
-    );
 }
 
 /// Handle recompile detection by checking if ready count increased.
@@ -781,7 +748,6 @@ pub fn pump_stdin_to_udp(
         match read_lsp_message(&mut reader) {
             Ok(Some(message)) => {
                 msg_count += 1;
-                debug!("stdin reader: got message {} bytes", message.len());
                 // Log to file
                 if let Some(ref mut f) = stdin_log {
                     let preview = String::from_utf8_lossy(&message[..message.len().min(500)]);
@@ -871,11 +837,7 @@ pub fn pump_udp_to_stdout(
     shutdown: Arc<AtomicBool>,
     responded_ids: Arc<Mutex<HashSet<RequestId>>>,
 ) -> Result<()> {
-    let start = std::time::Instant::now();
-    debug!(
-        "UDP->stdout bridge STARTED at t=0ms, listening on {:?}",
-        socket.local_addr()
-    );
+    debug!("UDP->stdout bridge listening on {:?}", socket.local_addr());
     let mut dgram_buf = vec![0u8; UDP_BUFFER_SIZE];
     let mut stdout = io::stdout();
 
@@ -920,20 +882,12 @@ pub fn pump_udp_to_stdout(
         }
     }
 
-    let mut total_packets = 0u64;
     while !shutdown.load(Ordering::SeqCst) {
         match socket.recv(&mut dgram_buf) {
             Ok(size) => {
                 if size == 0 {
                     continue;
                 }
-                total_packets += 1;
-                debug!(
-                    "UDP packet #{} received: {} bytes at t={}ms",
-                    total_packets,
-                    size,
-                    start.elapsed().as_millis()
-                );
                 acc.extend_from_slice(&dgram_buf[..size]);
 
                 // Process as many complete messages as are buffered.
@@ -985,23 +939,6 @@ pub fn pump_udp_to_stdout(
                             error!("failed to flush stdout: {err}");
                             break;
                         }
-                        let preview = String::from_utf8_lossy(&body[..body.len().min(200)]);
-                        debug!(">> {} bytes to stdout (first 200): {}", body.len(), preview);
-                        // Extra: log if this looks like an initialize response (has capabilities)
-                        if body.len() > 50 {
-                            let body_str = String::from_utf8_lossy(&body);
-                            if body_str.contains("capabilities") {
-                                debug!(
-                                    "!!! CAPABILITIES DETECTED in response at t={}ms !!!",
-                                    start.elapsed().as_millis()
-                                );
-                                debug!("FULL RESPONSE: {}", body_str);
-                            }
-                        }
-
-                        // Log full initialize response for debugging capabilities
-                        log_response_details(&body);
-
                         // If the accumulator still contains more bytes, loop to parse them.
                         continue 'outer;
                     }

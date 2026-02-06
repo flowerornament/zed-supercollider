@@ -332,7 +332,7 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         debug!("run token {}: spawned sclang pid={}", run_token, pid);
         // Write PID file for safe cleanup by external tools
         if let Err(e) = write_pid_file(std::process::id(), pid) {
-            warn!("{}", e);
+            warn!("PID file: {}", e);
         }
     }
 
@@ -378,7 +378,6 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
 
     // Start the stdin bridge IMMEDIATELY to capture the initialize request from Zed.
     // The bridge will buffer messages until sclang is ready.
-    debug!("about to spawn stdin_bridge thread");
     let sclang_ready = Arc::new(AtomicBool::new(false));
     let stdin_bridge = {
         let udp = udp_sender
@@ -389,7 +388,6 @@ pub fn run_lsp_bridge(sclang: &str, args: &Args) -> Result<()> {
         let ready_flag = sclang_ready.clone();
         let responded = responded_ids.clone();
         let recompile_count = ready_count.clone();
-        debug!("spawning stdin->udp thread NOW");
         let handle = thread::Builder::new()
             .name("stdin->udp".into())
             .spawn(move || {

@@ -4,7 +4,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use log::{debug, info};
+use log::debug;
 use std::io::Write;
 use std::process::Stdio;
 
@@ -18,11 +18,6 @@ use sc_launcher::{Args, Mode};
 // ============================================================================
 
 fn main() -> Result<()> {
-    // Honor legacy SC_LAUNCHER_DEBUG if RUST_LOG not set
-    if std::env::var("RUST_LOG").is_err() && std::env::var("SC_LAUNCHER_DEBUG").is_ok() {
-        std::env::set_var("RUST_LOG", "sc_launcher=debug");
-    }
-
     // Initialize structured logging
     env_logger::Builder::from_env(
         env_logger::Env::default().filter_or("RUST_LOG", "sc_launcher=info"),
@@ -52,8 +47,6 @@ fn main() -> Result<()> {
         }
     }
 
-    // Log startup details
-    info!("======== MAIN STARTED ========");
     debug!(
         "PID={} args={:?}",
         std::process::id(),

@@ -187,7 +187,7 @@ Uses `Cmd+Shift` prefix to avoid conflicts with standard editor shortcuts.
 |----------|-------------|---------|
 | `SC_HTTP_PORT` | HTTP port for eval/control | `57130` |
 | `SC_TMP_DIR` | Log file directory | `$TMPDIR` or `/tmp` |
-| `SC_LAUNCHER_DEBUG` | Enable verbose logging | unset |
+| `RUST_LOG` | Log level (e.g. `sc_launcher=debug`) | `sc_launcher=info` |
 
 ## Troubleshooting
 

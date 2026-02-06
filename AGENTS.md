@@ -6,8 +6,13 @@ This project uses **bd** (beads) for issue tracking. Run `bd prime` for workflow
 
 Ship a stable Zed extension for SuperCollider with navigation, completion, hover, and play-button evaluation. Architecture is dual-channel: LSP over stdio↔UDP for intelligence, HTTP for eval/control (Zed extensions cannot call `workspace/executeCommand`).
 
+## Mind Map
+
+Read `.agents/MIND_MAP.md` first — it's the codebase knowledge index with cross-referenced nodes. Update it when you make significant changes.
+
 ## Documentation Map
 
+- `.agents/MIND_MAP.md` - Knowledge graph index (start here)
 - `.agents/architecture.md` - System diagram and mental model
 - `.agents/conventions.md` - Code rules for SC/Rust/Zed
 - `.agents/commands.md` - Build, verify, and troubleshoot commands

@@ -67,6 +67,6 @@ curl -X POST -d "1+1" http://127.0.0.1:57130/eval
 
 ## Environment Variables
 
-- `SC_LAUNCHER_DEBUG` - Enable verbose logging
+- `RUST_LOG` - Log level filter (e.g. `RUST_LOG=sc_launcher=debug`)
 - `SCLANG_LSP_LOGLEVEL` - Log level for the quark (set via `--log-level`)
 - `SCHELP_LUA` - Path to schelp.lua for help conversion

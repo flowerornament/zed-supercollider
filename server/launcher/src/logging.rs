@@ -3,7 +3,7 @@
 //! Provides timestamp generation, log directory management, and child process
 //! stream logging with LSP READY detection.
 
-use log::debug;
+use log::{debug, warn};
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -184,10 +184,7 @@ where
                         Some(f)
                     }
                     Err(_) => {
-                        debug!(
-                            "warning: failed to open post log at {}",
-                            post_log_path.display()
-                        );
+                        warn!("failed to open post log at {}", post_log_path.display());
                         None
                     }
                 }
